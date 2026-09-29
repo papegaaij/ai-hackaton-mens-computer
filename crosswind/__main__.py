@@ -2,9 +2,11 @@
 import pygame
 
 from crosswind import config
+from crosswind.audio.engine import engine
 from crosswind.scenes.scenes import MenuScene
 
 FULLSCREEN_KEY = pygame.K_F10
+MUSIC_KEYS = {pygame.K_MINUS: -1, pygame.K_KP_MINUS: -1, pygame.K_EQUALS: 1, pygame.K_KP_PLUS: 1}  # music down / up
 WINDOW_FLAGS = pygame.SCALED | pygame.RESIZABLE  # always drawn at WIDTH x HEIGHT, scaled up by pygame
 
 
@@ -36,6 +38,8 @@ def main() -> None:
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == FULLSCREEN_KEY:
                 toggle_fullscreen()
+            elif event.type == pygame.KEYDOWN and event.key in MUSIC_KEYS:
+                engine().change_music_volume(MUSIC_KEYS[event.key])
             else:
                 scene = scene.handle_event(event)
         scene = scene.update(dt)

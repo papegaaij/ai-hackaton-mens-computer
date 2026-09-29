@@ -16,10 +16,14 @@ MUSIC_DIR = Path(__file__).resolve().parent.parent / "assets" / "music"
 
 MENU, BATTLE, WIN, DRAW = "sector", "urgent", "victory", "transmission"
 LOOPING = {MENU, BATTLE}
-VOLUME = {MENU: 0.45, BATTLE: 0.32, WIN: 0.5, DRAW: 0.4}  # under the sound effects
+# Per track, to even out their loudness (about -15 LUFS in the menu, -18 LUFS under the battle's effects).
+# urgent.ogg was boosted +5.5 dB (with a peak limiter) over the original, which is mastered much quieter.
+VOLUME = {MENU: 0.70, BATTLE: 0.67, WIN: 0.80, DRAW: 0.70}
+GAIN_STEP = 2.0    # dB per press of the music volume keys
+GAIN_RANGE = (-24.0, 3.0)  # dB around the levels above
 SWITCH_FADE = 1.5  # s to crossfade from one track to another
 LOOP_FADE = 3.0    # s of overlap when a loop starts over
-DUCK_DEPTH = 0.4   # how far the music dips under big blasts
+DUCK_DEPTH = 0.3   # how far the music dips under big blasts
 
 
 @dataclass
@@ -38,6 +42,7 @@ class Music:
         self._sounds: dict[str, pygame.mixer.Sound] = {}
         self.track: str | None = None
         self._active = 0  # voice playing the current track
+        self.gain_db = 0.0  # the player's music volume setting
 
     def _sound(self, name: str) -> pygame.mixer.Sound:
         if name not in self._sounds:
@@ -52,6 +57,11 @@ class Music:
         self._fade_out(self._voices[self._active], SWITCH_FADE)
         if name is not None:
             self._start(1 - self._active, SWITCH_FADE)
+
+    def change_volume(self, steps: int) -> None:
+        """Turn the music up (steps > 0) or down, GAIN_STEP dB at a time."""
+        lo, hi = GAIN_RANGE
+        self.gain_db = min(hi, max(lo, self.gain_db + steps * GAIN_STEP))
 
     def _fade_out(self, voice: _Voice, fade: float) -> None:
         voice.target, voice.fade = 0.0, fade
@@ -83,4 +93,5 @@ class Music:
                 v.channel.stop()
                 v.track = None
                 continue
-            v.channel.set_volume(VOLUME[v.track] * v.level * (1.0 - DUCK_DEPTH * duck))
+            gain = 10 ** (self.gain_db / 20)
+            v.channel.set_volume(min(1.0, VOLUME[v.track] * gain * v.level * (1.0 - DUCK_DEPTH * duck)))

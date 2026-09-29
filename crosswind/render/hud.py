@@ -113,7 +113,7 @@ class Hud:
                 x = edge - 150 + 62 if right else edge + 62
                 for control, name in keys:
                     x += self._key_chip(screen, name, x, y, control in held, theme.PLAYER_COLORS[i]) + 4
-        self._text(screen, "Esc menu   M mute   F10 full screen", (cx, h - 14), self.small, theme.HUD_DIM, center=True)
+        self._text(screen, "Esc menu   M mute   -/= music   F10 full screen", (cx, h - 14), self.small, theme.HUD_DIM, center=True)
 
         # start countdown: 3, 2, 1, FIRE!
         if game.countdown > 0:

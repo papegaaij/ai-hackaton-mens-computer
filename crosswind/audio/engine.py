@@ -154,6 +154,10 @@ class SoundEngine:
         if self.enabled:
             self.music.play(track)
 
+    def change_music_volume(self, steps: int) -> None:
+        if self.enabled:
+            self.music.change_volume(steps)
+
     def ui(self) -> None:
         if self.enabled and not self.muted:
             self._play(R.UI, 0.0, LEVEL["cue"], PRIORITY["ui"])

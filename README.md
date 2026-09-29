@@ -23,7 +23,7 @@ python3 -m venv .venv
 | Next weapon | ` | ? |
 | Fire | Left Shift | Right Shift |
 
-Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · M: mute sound · F10: full screen · R/Enter: rematch.
+Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · M: mute sound · - / =: music quieter / louder · F10: full screen · R/Enter: rematch.
 A 3-2-1 countdown starts each match; you can aim during it but not fire.
 
 ## Computer players
@@ -79,7 +79,7 @@ brighter and leaning to the side it blows to), Player 1 sits left in the stereo 
 Samples: Kenney (kenney.nl), CC0; see `crosswind/assets/sounds/CREDITS.md`.
 
 Music: an eerie alien theme in the menu, a driving pulse in battle and a sting when the match is decided,
-crossfaded and kept under the sound effects (it dips under big blasts). Tracks: *Dark Sci-Fi Audio Pack*
+crossfaded and mixed just under the sound effects (it dips under big blasts); - and = change its volume. Tracks: *Dark Sci-Fi Audio Pack*
 by SRG774, CC0; see `crosswind/assets/music/CREDITS.md`.
 
 ## Architecture

@@ -1,3 +1,4 @@
+import math
 import os
 
 import pytest
@@ -75,3 +76,25 @@ def test_music_ducks_and_pauses_with_mute(channels):
     elapsed = v.elapsed
     run(m, 1.0, muted=True)
     assert v.elapsed == elapsed  # the clock stops while the mixer is paused
+
+
+def test_music_volume_keys_change_the_level(channels):
+    m = M.Music(channels)
+    m.play(M.BATTLE)
+    run(m, M.SWITCH_FADE + 0.1)
+    v = m._voices[m._active]
+    base = v.channel.get_volume()
+    m.change_volume(-3)
+    run(m, 0.02)
+    assert abs(20 * math.log10(v.channel.get_volume() / base) + 3 * M.GAIN_STEP) < 0.3
+    for _ in range(50):
+        m.change_volume(1)
+    assert m.gain_db == M.GAIN_RANGE[1]
+
+
+def test_tracks_are_evened_out():
+    """Each track's loudness in the mix stays within a few dB of the others (measured LUFS of the files)."""
+    lufs = {M.MENU: -12.1, M.BATTLE: -14.5, M.WIN: -12.9, M.DRAW: -13.2}
+    mixed = {t: lufs[t] + 20 * math.log10(M.VOLUME[t]) for t in lufs}
+    assert max(mixed.values()) - min(mixed.values()) < 4.0
+    assert mixed[M.BATTLE] > -20.0  # not buried under the effects any more
