@@ -14,11 +14,11 @@ from crosswind.render import theme
 class Hud:
     FIRE_BANNER = 0.8  # s the "FIRE!" banner stays up after the countdown
 
-    def __init__(self, help_lines: list[str]) -> None:
+    def __init__(self, help_lines: list[list[str]]) -> None:
         self.font = pygame.font.Font(None, 26)
         self.small = pygame.font.Font(None, 20)
         self.big = pygame.font.Font(None, 96)
-        self.help_lines = help_lines  # one per player
+        self.help_lines = help_lines  # per player: one line per control
         self._fire_banner = 0.0
 
     def _text(self, screen, text, pos, font=None, color=theme.HUD_TEXT, center=False, right=False):
@@ -79,12 +79,13 @@ class Hud:
         pygame.draw.line(screen, theme.HUD_TEXT, (cx, 26), (cx, 42), 2)
 
         # key help, each player's keys on their own side
-        for i, line in enumerate(self.help_lines):
-            text = f"P{i + 1}  {line}"
-            if i == 0:
-                self._text(screen, text, (12, h - 22), self.small, theme.HUD_DIM)
-            else:
-                self._text(screen, text, (w - 12, h - 22), self.small, theme.HUD_DIM, right=True)
+        line_h = 18
+        for i, lines in enumerate(self.help_lines):
+            top = h - 12 - line_h * (len(lines) + 1)
+            for j, line in enumerate([f"PLAYER {i + 1}"] + lines):
+                color = theme.PLAYER_COLORS[i] if j == 0 else theme.HUD_DIM
+                pos = (12, top + j * line_h) if i == 0 else (w - 12, top + j * line_h)
+                self._text(screen, line, pos, self.small, color, right=(i == 1))
         self._text(screen, "Esc menu", (cx, h - 14), self.small, theme.HUD_DIM, center=True)
 
         # start countdown: 3, 2, 1, FIRE!

@@ -9,7 +9,9 @@ from crosswind import config
 from crosswind.core.actions import FireAction
 from crosswind.core.game import Game
 
-_KEY_LABELS = {pygame.K_SPACE: "Space", pygame.K_RETURN: "Enter"}
+_KEY_LABELS = {pygame.K_SPACE: "Space", pygame.K_RETURN: "Enter", pygame.K_TAB: "Tab",
+               pygame.K_LSHIFT: "LShift", pygame.K_RSHIFT: "RShift", pygame.K_UP: "Up", pygame.K_DOWN: "Down",
+               pygame.K_LEFT: "Left", pygame.K_RIGHT: "Right"}
 
 
 @dataclass(frozen=True)
@@ -24,20 +26,26 @@ class KeyMap:
     weapon: int
     fire: int
 
-    def describe(self) -> str:
+    def describe(self) -> list[str]:
+        """One line per control, for the on-screen help."""
         def n(key: int) -> str:
             return _KEY_LABELS.get(key) or pygame.key.name(key).upper()
-        return (f"{n(self.power_up)}/{n(self.power_down)} power  {n(self.angle_left)}/{n(self.angle_right)} angle  "
-                f"{n(self.move_left)}/{n(self.move_right)} move  {n(self.jump)} jump  {n(self.weapon)} weapon  "
-                f"{n(self.fire)} fire")
+        return [
+            f"Move: {n(self.move_left)} / {n(self.move_right)}",
+            f"Angle: {n(self.angle_left)} / {n(self.angle_right)}",
+            f"Power: {n(self.power_down)} / {n(self.power_up)}",
+            f"Jump: {n(self.jump)}",
+            f"Weapon: {n(self.weapon)}",
+            f"Fire: {n(self.fire)}",
+        ]
 
 
-P1_KEYS = KeyMap(power_up=pygame.K_w, power_down=pygame.K_s, angle_left=pygame.K_a, angle_right=pygame.K_d,
-                 move_left=pygame.K_q, move_right=pygame.K_e, jump=pygame.K_f, weapon=pygame.K_r,
-                 fire=pygame.K_SPACE)
-P2_KEYS = KeyMap(power_up=pygame.K_i, power_down=pygame.K_k, angle_left=pygame.K_j, angle_right=pygame.K_l,
-                 move_left=pygame.K_u, move_right=pygame.K_o, jump=pygame.K_h, weapon=pygame.K_p,
-                 fire=pygame.K_RETURN)
+P1_KEYS = KeyMap(power_up=pygame.K_2, power_down=pygame.K_1, angle_left=pygame.K_a, angle_right=pygame.K_s,
+                 move_left=pygame.K_w, move_right=pygame.K_d, jump=pygame.K_TAB, weapon=pygame.K_BACKQUOTE,
+                 fire=pygame.K_LSHIFT)
+P2_KEYS = KeyMap(power_up=pygame.K_RIGHTBRACKET, power_down=pygame.K_LEFTBRACKET, angle_left=pygame.K_UP,
+                 angle_right=pygame.K_DOWN, move_left=pygame.K_LEFT, move_right=pygame.K_RIGHT,
+                 jump=pygame.K_RETURN, weapon=pygame.K_BACKSLASH, fire=pygame.K_RSHIFT)
 
 
 class HumanController:
