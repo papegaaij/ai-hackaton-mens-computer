@@ -41,7 +41,7 @@ class Terrain:
 
     def surface_y(self, x: float) -> int:
         """Y of the topmost solid pixel in column x."""
-        xi = int(np.clip(x, 0, self.width - 1))
+        xi = min(max(int(x), 0), self.width - 1)
         col = self.mask[:, xi]
         idx = np.argmax(col)
         return int(idx) if col[idx] else self.height

@@ -1,4 +1,4 @@
-"""The simulation. Pure Python + numpy, no pygame: runs headless for tests and future RL."""
+"""The simulation. Pure Python + numpy, no pygame: runs headless for tests and AI training."""
 from __future__ import annotations
 
 import math
@@ -9,11 +9,15 @@ import numpy as np
 
 from crosswind import config
 from crosswind.core import physics
-from crosswind.core.actions import FireAction
 from crosswind.core.player import Player
 from crosswind.core.terrain import Terrain
 from crosswind.core.weapons import WEAPONS
 from crosswind.core.wind import Wind
+
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    """Scalar clip (np.clip is slow on plain floats, and this runs many times per frame)."""
+    return float(min(max(v, lo), hi))
 
 
 class Phase(Enum):
@@ -29,18 +33,28 @@ class Explosion:
     dirt: bool = False  # a mound of earth was built instead of a crater
 
 
+@dataclass(frozen=True)
+class Impact:
+    x: float
+    y: float
+    time: float   # Game.time when it came down
+    weapon: int   # index into WEAPONS of the weapon that was fired
+    angle: float  # the aim it was fired with
+    power: float
+
+
 class Game:
     """A live duel: both players aim, move and fire at the same time, paying for each shot with energy."""
 
     def __init__(self, seed: int | None = None, width: int = config.WIDTH, height: int = config.HEIGHT,
-                 countdown: float = config.START_COUNTDOWN):
+                 countdown: float = config.START_COUNTDOWN, wind_strength: float = 1.0):
         self.rng = np.random.default_rng(seed)
         self.terrain = Terrain(width, height, self.rng)
         self.players = [
             self._spawn(0, width * 0.15, 45.0),
             self._spawn(1, width * 0.85, 135.0),
         ]
-        self._wind = Wind(self.rng)
+        self._wind = Wind(self.rng, wind_strength)
         self.phase = Phase.PLAYING
         self.countdown = countdown  # seconds before anyone may fire
         self.projectiles: list[physics.Projectile] = []
@@ -48,6 +62,9 @@ class Game:
         self.events: list[Explosion] = []  # consumed by the renderer
         self._end_timer: float | None = None
         self._accum = 0.0
+        self.time = 0.0  # simulated seconds since the start
+        # per player: where their latest shot came down (what a player sees on screen), or None
+        self.last_impact: list[Impact | None] = [None, None]
 
     def _spawn(self, index: int, x: float, angle: float) -> Player:
         p = Player(index, x, 0.0, angle)
@@ -75,17 +92,20 @@ class Game:
         return p.x + math.cos(rad) * length, p.y - config.PLAYER_RADIUS * 0.5 - math.sin(rad) * length
 
     # ---- input API (used by controllers) ---------------------------------
-    def adjust_aim(self, index: int, d_angle: float, d_power: float) -> None:
+    def adjust_aim(self, index: int, d_angle: float, d_power: float, dt: float) -> None:
+        """Turn the barrel and the power dial; never faster than ANGLE_SPEED / POWER_SPEED allow."""
         if not self.can_act(index):
             return
         p = self.players[index]
-        p.angle = float(np.clip(p.angle + d_angle, 0, 180))
-        p.power = float(np.clip(p.power + d_power, 5, 100))
+        max_angle, max_power = config.ANGLE_SPEED * dt, config.POWER_SPEED * dt
+        p.angle = _clamp(p.angle + _clamp(d_angle, -max_angle, max_angle), 0, 180)
+        p.power = _clamp(p.power + _clamp(d_power, -max_power, max_power), 5, 100)
 
-    def cycle_weapon(self, index: int, step: int) -> None:
-        if self.can_act(index):
+    def cycle_weapon(self, index: int, step: int = 1) -> None:
+        """Step to the next (or previous) weapon: one weapon per call, like one key press."""
+        if self.can_act(index) and step:
             p = self.players[index]
-            p.weapon = (p.weapon + step) % len(WEAPONS)
+            p.weapon = (p.weapon + (1 if step > 0 else -1)) % len(WEAPONS)
 
     def move(self, index: int, direction: int, dt: float) -> None:
         """Drive a tank along the ground, or steer it in the air; costs fuel, blocked by steep slopes and walls."""
@@ -95,7 +115,7 @@ class Game:
         dist = min(config.PLAYER_SPEED * dt, p.fuel)
         if dist <= 0:
             return
-        nx = float(np.clip(p.x + direction * dist, config.PLAYER_RADIUS, self.terrain.width - config.PLAYER_RADIUS))
+        nx = _clamp(p.x + direction * dist, config.PLAYER_RADIUS, self.terrain.width - config.PLAYER_RADIUS)
         max_step = config.MAX_CLIMB * max(dist, 1)
         if p.airborne:
             if self.terrain.surface_y(nx) < self._feet(p):  # ground above our feet there: a wall
@@ -117,17 +137,19 @@ class Game:
         p.airborne = True
         return True
 
-    def fire(self, index: int, action: FireAction) -> bool:
-        """Launch a shot for player `index`; costs the weapon's energy. Refused when `can_fire` is False."""
-        if not self.can_fire(index, action.weapon):
+    def fire(self, index: int) -> bool:
+        """Launch a shot with the tank's current aim and weapon; costs the weapon's energy.
+
+        Refused when `can_fire` is False.
+        """
+        if not self.can_fire(index):
             return False
         p = self.players[index]
-        p.angle = float(np.clip(action.angle, 0, 180))
-        p.power = float(np.clip(action.power, 5, 100))
-        p.weapon = action.weapon % len(WEAPONS)
         weapon = WEAPONS[p.weapon]
         tx, ty = self.barrel_tip(p)
-        self.projectiles.append(physics.launch(tx, ty, p.angle, p.power, weapon, p.index))
+        shot = physics.launch(tx, ty, p.angle, p.power, weapon, p.index)
+        shot.weapon_index, shot.aim = p.weapon, (p.angle, p.power)
+        self.projectiles.append(shot)
         p.energy -= weapon.energy
         p.cooldown = config.FIRE_COOLDOWN
         return True
@@ -141,6 +163,7 @@ class Game:
             self._tick(config.PHYSICS_DT)
 
     def _tick(self, dt: float) -> None:
+        self.time += dt
         self._wind.step(dt)
         if self.phase is Phase.GAME_OVER:
             return
@@ -200,6 +223,7 @@ class Game:
 
     def _impact(self, p: physics.Projectile) -> None:
         w = p.weapon
+        self.last_impact[p.owner] = Impact(p.x, p.y, self.time, p.weapon_index, *p.aim)
         if w.dirt:
             self._build(p.x, p.y, w.blast_radius)
         else:
@@ -247,18 +271,3 @@ class Game:
         self.phase = Phase.GAME_OVER
         self.winner = alive[0].index if len(alive) == 1 else None
         self.projectiles.clear()
-
-    # ---- RL hook (stub for later) --------------------------------------
-    def observe(self, index: int, samples: int = 32) -> np.ndarray:
-        """Numeric observation from `index`'s point of view, normalised to ~[-1, 1]."""
-        me, them = self.players[index], self.players[1 - index]
-        w, h = self.terrain.width, self.terrain.height
-        xs = np.linspace(0, w - 1, samples)
-        ground = np.array([self.terrain.surface_y(x) for x in xs]) / h
-        head = np.array([
-            me.x / w, me.y / h, me.hp / config.PLAYER_HP, me.angle / 180, me.power / 100,
-            me.energy / config.ENERGY_MAX, me.weapon / len(WEAPONS),
-            them.x / w, them.y / h, them.hp / config.PLAYER_HP, them.energy / config.ENERGY_MAX,
-            self.wind / config.WIND_MAX,
-        ])
-        return np.concatenate([head, ground]).astype(np.float32)

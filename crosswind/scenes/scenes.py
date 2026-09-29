@@ -5,6 +5,8 @@ import math
 
 import pygame
 
+from crosswind.ai.controller import DIFFICULTIES, make_ai, models_available
+from crosswind.ai.rules import RuleBasedController
 from crosswind.control.human import P1_KEYS, P2_KEYS, HumanController
 from crosswind.core.game import Game, Phase
 from crosswind.render import theme
@@ -12,9 +14,25 @@ from crosswind.render.hud import Hud
 from crosswind.render.renderer import Renderer
 
 
+HUMAN = "Human"
+RULES = "Rules"  # the rule-based AI: needs no trained models
+KEYS = (P1_KEYS, P2_KEYS)
+MODE_KEYS = (pygame.K_F1, pygame.K_F2)  # cycle who plays player 1 / player 2
+
+
+def make_controller(index: int, mode: str):
+    if mode == HUMAN:
+        return HumanController(index, KEYS[index])
+    if mode == RULES:
+        return RuleBasedController(index, keys=KEYS[index], label="AI (Rules)")
+    return make_ai(index, mode, KEYS[index])
+
+
 class MenuScene:
-    def __init__(self, screen: pygame.Surface):
+    def __init__(self, screen: pygame.Surface, modes: tuple[str, str] = (HUMAN, HUMAN)):
         self.screen = screen
+        self.modes = list(modes)
+        self.choices = [HUMAN, RULES, *(DIFFICULTIES if models_available() else ())]
         self.preview = Game(seed=None)
         self.renderer = Renderer(*screen.get_size())
         self.title = pygame.font.Font(None, 120)
@@ -23,7 +41,10 @@ class MenuScene:
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
-            return BattleScene(self.screen)
+            return BattleScene(self.screen, modes=tuple(self.modes))
+        if event.type == pygame.KEYDOWN and event.key in MODE_KEYS:
+            i = MODE_KEYS.index(event.key)
+            self.modes[i] = self.choices[(self.choices.index(self.modes[i]) + 1) % len(self.choices)]
         return self
 
     def update(self, dt):
@@ -41,19 +62,26 @@ class MenuScene:
         if math.sin(self.t * 4) > -0.3:
             s = self.font.render("Press ENTER to start", True, theme.HUD_TEXT)
             self.screen.blit(s, s.get_rect(center=(w / 2, h * 0.3 + 180)))
+        for i, mode in enumerate(self.modes):
+            who = mode if mode == HUMAN else f"AI ({mode})"
+            text = f"Player {i + 1}: {who}" + (f"   [F{i + 1}]" if len(self.choices) > 1 else "")
+            s = self.font.render(text, True, theme.PLAYER_COLORS[i])
+            self.screen.blit(s, s.get_rect(center=(w / 2, h * 0.3 + 240 + i * 36)))
         return self
 
 
 class BattleScene:
     REMATCH_GRACE = 1.0  # s on the game-over screen before rematch keys count, so mashing fire can't skip it
+    AUTO_REMATCH = 4.0   # s on the game-over screen before an AI-vs-AI match starts over by itself
 
-    def __init__(self, screen: pygame.Surface, seed: int | None = None):
+    def __init__(self, screen: pygame.Surface, seed: int | None = None, modes: tuple[str, str] = (HUMAN, HUMAN)):
         self.screen = screen
+        self.modes = modes
         self.game = Game(seed=seed)
         self.renderer = Renderer(*screen.get_size())
-        # Two human controllers sharing the keyboard, each on its own keys. Swap one for an AI later.
-        self.controllers = [HumanController(0, P1_KEYS), HumanController(1, P2_KEYS)]
-        self.hud = Hud([c.keys.describe() for c in self.controllers])
+        # Each player is a human on their own keys, or an AI that shows the same keys as it "presses" them.
+        self.controllers = [make_controller(i, mode) for i, mode in enumerate(modes)]
+        self.hud = Hud(self.controllers)
         self.big = pygame.font.Font(None, 90)
         self.font = pygame.font.Font(None, 34)
         self._over_time = 0.0
@@ -61,10 +89,10 @@ class BattleScene:
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                return MenuScene(self.screen)
+                return MenuScene(self.screen, self.modes)
             if (self.game.phase is Phase.GAME_OVER and self._over_time >= self.REMATCH_GRACE
                     and event.key in (pygame.K_r, pygame.K_RETURN)):
-                return BattleScene(self.screen)
+                return BattleScene(self.screen, modes=self.modes)
         if self.game.phase is Phase.PLAYING:
             for ctrl in self.controllers:
                 if hasattr(ctrl, "handle_event"):
@@ -74,12 +102,12 @@ class BattleScene:
     def update(self, dt):
         g = self.game
         if g.phase is Phase.PLAYING:
-            for i, ctrl in enumerate(self.controllers):
-                action = ctrl.update(g, dt)
-                if action is not None:
-                    g.fire(i, action)
+            for ctrl in self.controllers:
+                ctrl.update(g, dt)
         else:
             self._over_time += dt
+            if HUMAN not in self.modes and self._over_time >= self.AUTO_REMATCH:
+                return BattleScene(self.screen, modes=self.modes)
         g.update(dt)
         self.renderer.draw(self.screen, g, dt)
         self.hud.draw(self.screen, g, dt)

@@ -14,11 +14,12 @@ from crosswind.render import theme
 class Hud:
     FIRE_BANNER = 0.8  # s the "FIRE!" banner stays up after the countdown
 
-    def __init__(self, help_lines: list[list[tuple[str, list[tuple[int, str]]]]]) -> None:
+    def __init__(self, controllers) -> None:
         self.font = pygame.font.Font(None, 26)
         self.small = pygame.font.Font(None, 20)
         self.big = pygame.font.Font(None, 96)
-        self.help_lines = help_lines  # per player: (label, [(key, name)]) per control
+        self.controllers = controllers  # per player: shows its keys, lit while it presses them
+        self.help_lines = [c.keys.describe() for c in controllers]  # per player: (label, [(control, name)])
         self._fire_banner = 0.0
 
     def _text(self, screen, text, pos, font=None, color=theme.HUD_TEXT, center=False, right=False):
@@ -97,20 +98,21 @@ class Hud:
         pygame.draw.line(screen, theme.HUD_TEXT, (cx, 26), (cx, 42), 2)
 
         # key help, each player's keys on their own side
-        pressed = pygame.key.get_pressed()
         line_h = 20
-        for i, lines in enumerate(self.help_lines):
+        for i, (ctrl, lines) in enumerate(zip(self.controllers, self.help_lines)):
+            held = ctrl.held()
             right = i == 1
             edge = w - 12 if right else 12
             top = h - 10 - line_h * (len(lines) + 1)
-            self._text(screen, f"PLAYER {i + 1}", (edge, top), self.small, theme.PLAYER_COLORS[i], right=right)
+            title = f"PLAYER {i + 1}" + (f" · {ctrl.label}" if ctrl.label else "")
+            self._text(screen, title, (edge, top), self.small, theme.PLAYER_COLORS[i], right=right)
             for j, (label, keys) in enumerate(lines):
                 y = top + (j + 1) * line_h
                 label_x = edge - 150 if right else edge  # label column, then key chips
                 self._text(screen, label, (label_x, y + 2), self.small, theme.HUD_DIM)
                 x = edge - 150 + 62 if right else edge + 62
-                for key, name in keys:
-                    x += self._key_chip(screen, name, x, y, pressed[key], theme.PLAYER_COLORS[i]) + 4
+                for control, name in keys:
+                    x += self._key_chip(screen, name, x, y, control in held, theme.PLAYER_COLORS[i]) + 4
         self._text(screen, "Esc menu", (cx, h - 14), self.small, theme.HUD_DIM, center=True)
 
         # start countdown: 3, 2, 1, FIRE!

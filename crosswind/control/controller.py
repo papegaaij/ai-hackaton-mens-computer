@@ -1,13 +1,20 @@
-"""Controllers decide what a player does. Humans and (later) AI agents are interchangeable."""
+"""Controllers decide what a player does. Humans and AI agents are interchangeable."""
 from __future__ import annotations
 
 from typing import Protocol
 
-from crosswind.core.actions import FireAction
 from crosswind.core.game import Game
 
 
 class Controller(Protocol):
-    def update(self, game: Game, dt: float) -> FireAction | None:
-        """Called every frame for this controller's own player. Return an action to fire."""
+    index: int
+    keys: object  # the player's KeyMap: the HUD shows these key caps for this player
+    label: str    # shown next to the player name in the HUD ("" for a human)
+
+    def update(self, game: Game, dt: float) -> None:
+        """Called every frame. Acts only through Game's input API: adjust_aim, move, jump, cycle_weapon, fire."""
+        ...
+
+    def held(self) -> set[str]:
+        """KeyMap field names of the keys this player is pressing right now, for the HUD."""
         ...

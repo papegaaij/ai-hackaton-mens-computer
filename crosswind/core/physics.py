@@ -25,6 +25,8 @@ class Projectile:
     trail: list[tuple[float, float]] = field(default_factory=list)
     age: float = 0.0                # seconds since launch
     timer: float | None = None      # driller/bouncer: seconds left until it explodes, once it touched ground
+    weapon_index: int = -1          # index into WEAPONS of the weapon that was fired (bomblets inherit it)
+    aim: tuple[float, float] = (0.0, 0.0)  # (angle, power) it was fired with
 
 
 def launch(x: float, y: float, angle: float, power: float, weapon: Weapon, owner: int) -> Projectile:
@@ -56,7 +58,8 @@ def split(p: Projectile) -> list[Projectile]:
     w = p.weapon
     assert w.split_into is not None
     mid = (w.split - 1) / 2
-    return [Projectile(p.x, p.y, p.vx + w.split_spread * (i - mid), p.vy, w.split_into, p.owner, list(p.trail), p.age)
+    return [Projectile(p.x, p.y, p.vx + w.split_spread * (i - mid), p.vy, w.split_into, p.owner, list(p.trail), p.age,
+                       weapon_index=p.weapon_index, aim=p.aim)
             for i in range(w.split)]
 
 

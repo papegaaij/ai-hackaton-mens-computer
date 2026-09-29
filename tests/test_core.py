@@ -5,7 +5,6 @@ import numpy as np
 
 from crosswind import config
 from crosswind.core import physics
-from crosswind.core.actions import FireAction
 from crosswind.core.game import Game, Phase
 from crosswind.core.terrain import Terrain
 from crosswind.core.weapons import BOMBLET, WEAPONS, Weapon
@@ -13,6 +12,13 @@ from crosswind.core.wind import Wind
 
 
 NO_DRAG = Weapon("test", mass=1.0, drag=0.0, blast_radius=10, damage=10)
+
+
+def shoot(g, index, angle, power, weapon_index=0):
+    """Set a player's aim and weapon directly (a test shortcut past the rate limits), then fire."""
+    p = g.players[index]
+    p.angle, p.power, p.weapon = angle, power, weapon_index
+    return g.fire(index)
 
 
 def fly(p, wind, height=10_000, t=None, ground_y=None):
@@ -57,9 +63,9 @@ def test_carve_removes_pixels_but_not_bedrock():
 
 def test_no_firing_during_countdown():
     g = Game(seed=3)
-    assert not g.fire(0, FireAction(90, 40, 0))
+    assert not shoot(g, 0, 90, 40, 0)
     g.update(config.START_COUNTDOWN + 0.1)
-    assert g.fire(0, FireAction(90, 40, 0))
+    assert shoot(g, 0, 90, 40, 0)
 
 
 def weapon(name):
@@ -68,17 +74,17 @@ def weapon(name):
 
 def test_cooldown_blocks_instant_refire():
     g = Game(seed=3, countdown=0)
-    assert g.fire(0, FireAction(90, 40, weapon("Spark")))
-    assert not g.fire(0, FireAction(90, 40, weapon("Spark")))
+    assert shoot(g, 0, 90, 40, weapon("Spark"))
+    assert not shoot(g, 0, 90, 40, weapon("Spark"))
     g.update(config.FIRE_COOLDOWN + 0.01)
-    assert g.fire(0, FireAction(90, 40, weapon("Spark")))
+    assert shoot(g, 0, 90, 40, weapon("Spark"))
 
 
 def test_cheap_weapon_fires_in_bursts():
     g = Game(seed=3, countdown=0)
     shots = 0
     for _ in range(4):
-        shots += g.fire(0, FireAction(90, 40, weapon("Spark")))
+        shots += shoot(g, 0, 90, 40, weapon("Spark"))
         g.update(config.FIRE_COOLDOWN + 0.01)
     assert shots == 4
 
@@ -86,12 +92,12 @@ def test_cheap_weapon_fires_in_bursts():
 def test_megaton_needs_a_full_bar():
     g = Game(seed=3, countdown=0)
     p = g.players[0]
-    assert g.fire(0, FireAction(90, 40, weapon("Spark")))
+    assert shoot(g, 0, 90, 40, weapon("Spark"))
     g.update(config.FIRE_COOLDOWN + 0.01)
-    assert not g.fire(0, FireAction(90, 40, weapon("Megaton")))
+    assert not shoot(g, 0, 90, 40, weapon("Megaton"))
     g.update(config.ENERGY_MAX / config.ENERGY_REGEN)
     assert p.energy == config.ENERGY_MAX
-    assert g.fire(0, FireAction(90, 40, weapon("Megaton")))
+    assert shoot(g, 0, 90, 40, weapon("Megaton"))
     assert p.energy == 0
 
 
@@ -102,8 +108,8 @@ def test_every_weapon_costs_energy():
 
 def test_both_players_shoot_at_the_same_time():
     g = Game(seed=3, countdown=0)
-    assert g.fire(0, FireAction(60, 70, 0))
-    assert g.fire(1, FireAction(120, 70, 2))
+    assert shoot(g, 0, 60, 70, 0)
+    assert shoot(g, 1, 120, 70, 2)
     assert {p.owner for p in g.projectiles} == {0, 1}
     for _ in range(2000):
         g.update(1 / 60)
@@ -188,7 +194,7 @@ def test_tank_falls_off_steep_drop():
 
 def fire_and_wait(g, angle, power, name, max_t=15.0):
     """Fire for player 0 and run until the first explosion (or build); returns it."""
-    assert g.fire(0, FireAction(angle, power, weapon(name)))
+    assert shoot(g, 0, angle, power, weapon(name))
     t = 0.0
     while not g.events and t < max_t:
         g.update(config.PHYSICS_DT)
@@ -207,7 +213,7 @@ def test_rocket_drifts_less_than_plasma():
 
 def test_cluster_splits_into_bomblets_at_apex():
     g = flat_game()
-    assert g.fire(0, FireAction(60, 50, weapon("Cluster Bomb")))
+    assert shoot(g, 0, 60, 50, weapon("Cluster Bomb"))
     while len(g.projectiles) == 1:
         vy = g.projectiles[0].vy
         g.update(config.PHYSICS_DT)
@@ -227,7 +233,7 @@ def test_driller_bores_through_a_hill():
 
 def test_bouncer_bounces_before_exploding():
     g = flat_game()
-    assert g.fire(0, FireAction(60, 45, weapon("Bouncer")))
+    assert shoot(g, 0, 60, 45, weapon("Bouncer"))
     p = g.projectiles[0]
     while p.timer is None:
         g.update(config.PHYSICS_DT)
@@ -318,7 +324,7 @@ def test_mutual_kill_is_a_draw():
 def test_dead_player_cannot_fire():
     g = Game(seed=3, countdown=0)
     g.players[1].hp = 0
-    assert not g.fire(1, FireAction(120, 60, 0))
+    assert not shoot(g, 1, 120, 60, 0)
 
 
 def test_headless_random_play_without_pygame():
@@ -332,12 +338,47 @@ def test_headless_random_play_without_pygame():
             games += 1
         for i in (0, 1):
             g.move(i, int(rng.integers(-1, 2)), 1 / 30)
-            if g.fire(i, FireAction(rng.uniform(10, 170), rng.uniform(20, 100), wanted[i])):
+            if shoot(g, i, rng.uniform(10, 170), rng.uniform(20, 100), wanted[i]):
                 wanted[i] = int(rng.integers(len(WEAPONS)))
         g.update(1 / 30)
-    obs = g.observe(0)
-    assert obs.dtype == np.float32 and np.isfinite(obs).all()
     assert games > 1  # matches actually end
+
+
+def test_aim_cannot_turn_faster_than_the_rate_limit():
+    g = Game(seed=3, countdown=0)
+    p = g.players[0]
+    a0, p0 = p.angle, p.power
+    g.adjust_aim(0, 90.0, -90.0, 0.1)
+    assert abs(p.angle - (a0 + config.ANGLE_SPEED * 0.1)) < 1e-9
+    assert abs(p.power - (p0 - config.POWER_SPEED * 0.1)) < 1e-9
+
+
+def test_weapon_cycles_one_step_per_press():
+    g = Game(seed=3, countdown=0)
+    g.cycle_weapon(0, 5)
+    assert g.players[0].weapon == 1
+    g.cycle_weapon(0, -3)
+    g.cycle_weapon(0, -1)
+    assert g.players[0].weapon == len(WEAPONS) - 1
+
+
+def test_fire_uses_the_current_aim_and_weapon():
+    g = Game(seed=3, countdown=0)
+    p = g.players[0]
+    p.angle, p.power, p.weapon = 70.0, 55.0, weapon("Rocket")
+    assert g.fire(0)
+    shot = g.projectiles[0]
+    assert shot.weapon is WEAPONS[weapon("Rocket")]
+    assert abs(math.degrees(math.atan2(-shot.vy, shot.vx)) - 70.0) < 1e-6
+
+
+def test_last_impact_records_where_a_shot_came_down():
+    g = flat_game()
+    assert g.last_impact == [None, None]
+    ev = fire_and_wait(g, 60, 45, "Plasma Orb")
+    hit = g.last_impact[0]
+    assert hit is not None and g.last_impact[1] is None
+    assert (hit.x, hit.y) == (ev.x, ev.y) and hit.weapon == weapon("Plasma Orb")
 
 
 def test_core_does_not_import_pygame():

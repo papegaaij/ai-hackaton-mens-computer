@@ -13,14 +13,15 @@ class Wind:
     it, so it never holds still for long and can turn while a shot is in the air.
     """
 
-    def __init__(self, rng: np.random.Generator):
+    def __init__(self, rng: np.random.Generator, strength: float = 1.0):
         self.rng = rng
+        self.strength = strength  # fraction of WIND_MAX the wind can reach (AI training starts with less)
         self.value = self._random_value()
         self.target = self._random_value()
         self._shift_in = self._random_interval()
 
     def _random_value(self) -> float:
-        return float(self.rng.uniform(-config.WIND_MAX, config.WIND_MAX))
+        return float(self.rng.uniform(-config.WIND_MAX, config.WIND_MAX)) * self.strength
 
     def _random_interval(self) -> float:
         return float(self.rng.uniform(config.WIND_SHIFT_MIN, config.WIND_SHIFT_MAX))
@@ -34,5 +35,5 @@ class Wind:
 
 
 def wind_at(base: float, y: float, height: int) -> float:
-    altitude = np.clip(1.0 - y / height, 0.0, 1.0)
+    altitude = min(max(1.0 - y / height, 0.0), 1.0)
     return base * (1.0 + config.WIND_ALTITUDE_BOOST * altitude)

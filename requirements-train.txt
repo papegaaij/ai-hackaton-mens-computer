@@ -1,0 +1,6 @@
+# Only needed to (re)train the AI; playing uses the numpy models in models/.
+-r requirements.txt
+gymnasium>=1.0
+stable-baselines3>=2.4
+sb3-contrib>=2.4
+torch>=2.4
