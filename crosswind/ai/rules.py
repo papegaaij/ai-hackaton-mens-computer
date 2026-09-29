@@ -61,7 +61,7 @@ class RuleBasedController(AIController):
     # ---- what it sees ----------------------------------------------------
     def _dx(self, game: Game) -> float:
         me, them = game.players[self.index], game.players[1 - self.index]
-        return canon_dx(them.x - me.x, self.index)
+        return canon_dx(them.x - me.x, self.flip)
 
     def _hill(self, game: Game) -> float:
         """How far (px) the ground between the tanks rises above the higher of the two."""
@@ -72,7 +72,7 @@ class RuleBasedController(AIController):
         return min(me.y, them.y) - top
 
     def _wind(self, game: Game) -> float:
-        return canon_dx(game.wind, self.index)  # positive: blowing toward the enemy (tail wind)
+        return canon_dx(game.wind, self.flip)  # positive: blowing toward the enemy (tail wind)
 
     def _bracket(self, game: Game) -> Bracket:
         """The power that works (for a Plasma Orb), kept up to date when the enemy drives or the wind turns."""
@@ -112,11 +112,11 @@ class RuleBasedController(AIController):
         if shot == self._learned:  # another bomblet of a shot it already learned from
             return
         self._learned = shot
-        angle = canon_angle(angle, self.index)
+        angle = canon_angle(angle, self.flip)
         if weapon in (DIRT, SPARK) or abs(angle - self._angle(game)) > 2:  # cover, or erratic little sparks
             return
         them = game.players[1 - self.index]
-        miss = canon_dx(x - them.x, self.index)  # negative: short, positive: long
+        miss = canon_dx(x - them.x, self.flip)  # negative: short, positive: long
         self.misses.append(abs(miss))
         b = self._bracket(game)
         power /= FEEL.get(weapon, 1.0)  # as a Plasma Orb power
@@ -177,7 +177,7 @@ class RuleBasedController(AIController):
             power = 25.0
         else:
             power = self._power(game, weapon)
-        self.target_angle = canon_angle(angle, self.index)
+        self.target_angle = canon_angle(angle, self.flip)
         power = float(min(max(power, 5.0), 100.0))
         if self.target_power is None or abs(power - self.target_power) > 1.5:  # don't chase every gust
             self.target_power = power
@@ -189,6 +189,10 @@ class RuleBasedController(AIController):
 
     def update(self, game: Game, dt: float) -> None:
         me = game.players[self.index]
+        flip = self.flip
+        self.face(game)
+        if self.flip != flip:  # the enemy got past us: turn around and find the range again
+            self.bracket = None
         self._learn(game)
         hit = self._last_hp is not None and me.hp < self._last_hp
         self._last_hp = me.hp

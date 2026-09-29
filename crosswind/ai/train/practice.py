@@ -48,8 +48,9 @@ def practice_shot(rng: np.random.Generator) -> tuple | None:
         return None
     x = float(np.mean([e.x for e in g.events]))  # a cluster bomb comes down in several places
     y = float(np.mean([e.y for e in g.events]))
-    return (me.weapon, canon_angle(me.angle, index), me.power, canon_dx(x - me.x, index), y - me.y,
-            canon_dx(wind, index), canon_dx(trend, index), t)
+    flip = index == 1  # either frame is fine (the game is left-right symmetric): mirror half the shots
+    return (me.weapon, canon_angle(me.angle, flip), me.power, canon_dx(x - me.x, flip), y - me.y,
+            canon_dx(wind, flip), canon_dx(trend, flip), t)
 
 
 def _worker(args: tuple[int, int]) -> np.ndarray:

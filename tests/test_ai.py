@@ -56,14 +56,14 @@ def test_ai_turns_the_barrel_at_human_speed_and_shows_the_keys(index):
     g = Game(seed=4, countdown=0)
     ai = AIController(index, Fixed(angle=bin_of(80)), Aimer.load())
     p = g.players[index]
-    start = canon_angle(p.angle, index)
+    start = canon_angle(p.angle, index == 1)
     prev = p.angle
     for _ in range(30):
         ai.update(g, 1 / 60)
         g.update(1 / 60)
         assert abs(p.angle - prev) <= config.ANGLE_SPEED / 60 + 1e-9
         prev = p.angle
-    assert canon_angle(p.angle, index) > start  # raised toward 80 (mirrored for player 2)
+    assert canon_angle(p.angle, index == 1) > start  # raised toward 80 (mirrored for player 2)
     # the key that turns the barrel that way: angle_left raises the angle number, as for a human
     key, other = ("angle_left", "angle_right") if index == 0 else ("angle_right", "angle_left")
     assert key in ai.held() and other not in ai.held()
@@ -150,3 +150,31 @@ def test_training_env_follows_the_gym_api():
     from gymnasium.utils.env_checker import check_env
     from crosswind.ai.train.env import CrosswindEnv
     check_env(CrosswindEnv(seed=1), skip_render_check=True)
+
+
+def test_view_turns_around_only_once_the_enemy_is_clearly_past():
+    from crosswind.ai.obs import FLIP_MARGIN, facing_flip
+    g = Game(seed=4, countdown=0)
+    me, them = g.players
+    assert facing_flip(g, 0) is False and facing_flip(g, 1) is True  # at the start: enemy ahead
+    them.x = me.x - FLIP_MARGIN / 2  # just past, still overlapping: keep facing the same way
+    assert facing_flip(g, 0, False) is False
+    them.x = me.x - FLIP_MARGIN * 2  # clearly behind us now: turn around
+    assert facing_flip(g, 0, False) is True
+
+
+@pytest.mark.parametrize("difficulty", ["Hard", "Rules"])
+def test_ai_shoots_an_enemy_behind_it(difficulty):
+    """Tanks that drove past each other: the AI must turn around, not keep firing the old way."""
+    from crosswind.ai.rules import RuleBasedController
+    from crosswind.ai.train.evaluate import cross
+    hits = 0
+    for seed in range(3):
+        g = Game(seed=seed, countdown=0)
+        cross(g)  # player 1 now on the right, player 2 on the left
+        ai = RuleBasedController(0, seed=seed) if difficulty == "Rules" else make_ai(0, difficulty)
+        while g.phase is Phase.PLAYING and g.time < 30:
+            ai.update(g, 1 / 60)
+            g.update(1 / 60)
+        hits += g.players[1].hp < config.PLAYER_HP
+    assert hits >= 2

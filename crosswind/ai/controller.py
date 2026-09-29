@@ -16,7 +16,7 @@ from crosswind import config
 from crosswind.ai.aimer import Aimer
 from crosswind.ai.nets import MODELS_DIR, MLP
 from crosswind.ai.obs import (AIM_TARGETS, ANGLE_BINS, N_WEAPONS, POWER_STEPS, WIND_TREND_SPAN, aim_target,
-                              canon_angle, canon_dx, observe)
+                              canon_angle, canon_dx, facing_flip, observe)
 from crosswind.control.ramp import AimRamp
 from crosswind.core.game import Game
 
@@ -76,6 +76,7 @@ class AIController:
         self.decision_interval = decision_interval
         self.power_noise = power_noise
         self.rng = np.random.default_rng(seed)
+        self.flip = index == 1  # mirror the view: the enemy is to our left (updated as the tanks move)
         self.target_angle: float | None = None  # game angle the servo turns the barrel to
         self.target_power: float | None = None
         self.weapon = 0
@@ -102,26 +103,31 @@ class AIController:
         return (w1 - w0) / (t1 - t0) if t1 > t0 else 0.0
 
     def _suggest(self, game: Game, weapon: int, angles, target: int) -> np.ndarray:
-        dx, dy = aim_target(game, self.index, target)
-        return self.aimer.suggest(weapon, angles, dx, dy, canon_dx(game.wind, self.index),
-                                  canon_dx(self._trend, self.index))
+        dx, dy = aim_target(game, self.index, self.flip, target)
+        return self.aimer.suggest(weapon, angles, dx, dy, canon_dx(game.wind, self.flip),
+                                  canon_dx(self._trend, self.flip))
+
+    def face(self, game: Game) -> None:
+        """Turn the view around when the enemy has got past us, so 'ahead' is always toward the enemy."""
+        self.flip = facing_flip(game, self.index, self.flip)
 
     def observe(self, game: Game) -> np.ndarray:
         """Observation for the policy."""
+        self.face(game)
         me = game.players[self.index]
         suggestions = self._suggest(game, me.weapon, ANGLE_BINS, 0)
-        target = None if self.target_angle is None else canon_angle(self.target_angle, self.index)
-        return observe(game, self.index, self._trend, suggestions, target, self.target_power)
+        target = None if self.target_angle is None else canon_angle(self.target_angle, self.flip)
+        return observe(game, self.index, self.flip, self._trend, suggestions, target, self.target_power)
 
     def act(self, action: np.ndarray, game: Game) -> None:
         """Take a decision (see ACTION_NVEC); the keys are then pressed frame by frame in `drive`."""
         a_bin, p_step, weapon, target, move, jump, fire = (int(v) for v in action)
-        self.target_angle = canon_angle(float(ANGLE_BINS[a_bin]), self.index)
+        self.target_angle = canon_angle(float(ANGLE_BINS[a_bin]), self.flip)
         # the power for the weapon it will fire, which may not be selected yet
         power = self._suggest(game, weapon, ANGLE_BINS[a_bin], target)[0] + POWER_STEPS[p_step] + self._noise
         self.target_power = float(min(max(power, 5.0), 100.0))
         self.weapon = weapon
-        self.move = move - 1 if self.index == 0 else 1 - move
+        self.move = 1 - move if self.flip else move - 1
         self._jump, self._fire = bool(jump), bool(fire)
 
     # ---- pressing keys -------------------------------------------------
