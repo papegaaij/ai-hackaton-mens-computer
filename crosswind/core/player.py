@@ -14,6 +14,8 @@ class Player:
     fuel: float = config.PLAYER_FUEL
     weapon: int = 0
     reload: float = 0.0    # seconds until this player can fire again
+    vy: float = 0.0        # vertical speed while airborne (px/s, down is positive)
+    airborne: bool = False
 
     @property
     def alive(self) -> bool:

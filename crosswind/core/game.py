@@ -85,7 +85,7 @@ class Game:
             p.weapon = (p.weapon + step) % len(WEAPONS)
 
     def move(self, index: int, direction: int, dt: float) -> None:
-        """Drive a tank along the ground; costs fuel, blocked by steep slopes."""
+        """Drive a tank along the ground, or steer it in the air; costs fuel, blocked by steep slopes and walls."""
         if not self.can_act(index) or direction == 0:
             return
         p = self.players[index]
@@ -93,12 +93,26 @@ class Game:
         if dist <= 0:
             return
         nx = float(np.clip(p.x + direction * dist, config.PLAYER_RADIUS, self.terrain.width - config.PLAYER_RADIUS))
-        new_ground = self.terrain.surface_y(nx)
-        if (p.y + config.PLAYER_RADIUS) - new_ground > config.MAX_CLIMB * max(dist, 1):
+        max_step = config.MAX_CLIMB * max(dist, 1)
+        if p.airborne:
+            if self.terrain.surface_y(nx) < self._feet(p):  # ground above our feet there: a wall
+                return
+        elif self.terrain.surface_y(p.x) - self.terrain.surface_y(nx) > max_step:  # too steep to climb
             return
         p.fuel -= abs(nx - p.x)
         p.x = nx
-        self._settle(p)
+        if not p.airborne:
+            self._settle_or_fall(p, max_step)
+
+    def jump(self, index: int) -> bool:
+        """Hop up to get over steep sections (or dodge). Only from the ground; costs JUMP_FUEL."""
+        p = self.players[index]
+        if not self.can_act(index) or p.airborne or p.fuel < config.JUMP_FUEL:
+            return False
+        p.fuel -= config.JUMP_FUEL
+        p.vy = -config.JUMP_SPEED
+        p.airborne = True
+        return True
 
     def fire(self, index: int, action: FireAction) -> bool:
         """Launch a shot for player `index`. Refused when `can_fire` is False."""
@@ -129,11 +143,20 @@ class Game:
         for pl in self.players:
             pl.reload = max(0.0, pl.reload - dt)
             pl.fuel = min(config.PLAYER_FUEL, pl.fuel + config.FUEL_REGEN * dt)
+            if pl.airborne:
+                self._tick_airborne(pl, dt)
         self.projectiles = [p for p in self.projectiles if self._tick_projectile(p, dt)]
         if self._end_timer is not None:
             self._end_timer -= dt
             if self._end_timer <= 0:
                 self._finish()
+
+    def _tick_airborne(self, p: Player, dt: float) -> None:
+        p.vy += config.GRAVITY * dt
+        p.y += p.vy * dt
+        if p.vy >= 0 and self._feet(p) >= self.terrain.surface_y(p.x):
+            p.airborne, p.vy = False, 0.0
+            self._settle(p)
 
     def _tick_projectile(self, p: physics.Projectile, dt: float) -> bool:
         """Advance one projectile; returns False once it has exploded or left the field."""
@@ -159,13 +182,25 @@ class Game:
             if d < reach:
                 pl.hp = max(0.0, pl.hp - damage * (1 - d / reach))
         for pl in self.players:
-            self._settle(pl)
+            if not pl.airborne:
+                self._settle_or_fall(pl, 2)
         if self._end_timer is None and sum(pl.alive for pl in self.players) <= 1:
             self._end_timer = config.END_DELAY
 
     def _settle(self, p: Player) -> None:
         """Drop the tank onto the ground beneath it."""
         p.y = self.terrain.surface_y(p.x) - config.PLAYER_RADIUS * 0.5
+
+    def _feet(self, p: Player) -> float:
+        """Y where the tank touches the ground (the inverse of `_settle`)."""
+        return p.y + config.PLAYER_RADIUS * 0.5
+
+    def _settle_or_fall(self, p: Player, tolerance: float) -> None:
+        """Put a grounded tank on the ground, or let it fall if the ground dropped away more than `tolerance`."""
+        if self.terrain.surface_y(p.x) - self._feet(p) > tolerance:
+            p.airborne, p.vy = True, 0.0
+        else:
+            self._settle(p)
 
     def _finish(self) -> None:
         alive = [p for p in self.players if p.alive]

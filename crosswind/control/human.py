@@ -20,6 +20,7 @@ class KeyMap:
     angle_right: int
     move_left: int
     move_right: int
+    jump: int
     weapon: int
     fire: int
 
@@ -27,11 +28,16 @@ class KeyMap:
         def n(key: int) -> str:
             return _KEY_LABELS.get(key) or pygame.key.name(key).upper()
         return (f"{n(self.power_up)}/{n(self.power_down)} power  {n(self.angle_left)}/{n(self.angle_right)} angle  "
-                f"{n(self.move_left)}/{n(self.move_right)} move  {n(self.weapon)} weapon  {n(self.fire)} fire")
+                f"{n(self.move_left)}/{n(self.move_right)} move  {n(self.jump)} jump  {n(self.weapon)} weapon  "
+                f"{n(self.fire)} fire")
 
 
-P1_KEYS = KeyMap(pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d, pygame.K_q, pygame.K_e, pygame.K_r, pygame.K_SPACE)
-P2_KEYS = KeyMap(pygame.K_i, pygame.K_k, pygame.K_j, pygame.K_l, pygame.K_u, pygame.K_o, pygame.K_p, pygame.K_RETURN)
+P1_KEYS = KeyMap(power_up=pygame.K_w, power_down=pygame.K_s, angle_left=pygame.K_a, angle_right=pygame.K_d,
+                 move_left=pygame.K_q, move_right=pygame.K_e, jump=pygame.K_f, weapon=pygame.K_r,
+                 fire=pygame.K_SPACE)
+P2_KEYS = KeyMap(power_up=pygame.K_i, power_down=pygame.K_k, angle_left=pygame.K_j, angle_right=pygame.K_l,
+                 move_left=pygame.K_u, move_right=pygame.K_o, jump=pygame.K_h, weapon=pygame.K_p,
+                 fire=pygame.K_RETURN)
 
 
 class HumanController:
@@ -39,6 +45,7 @@ class HumanController:
         self.index = index
         self.keys = keys
         self._fire_requested = False
+        self._jump_requested = False
         self._weapon_step = 0
         # per aim axis: (direction held, seconds held) for tap = fine, hold = fast
         self._held = [(0, 0.0), (0, 0.0)]
@@ -48,6 +55,8 @@ class HumanController:
             return
         if event.key == self.keys.fire:
             self._fire_requested = True
+        elif event.key == self.keys.jump:
+            self._jump_requested = True
         elif event.key == self.keys.weapon:
             self._weapon_step += 1
 
@@ -65,6 +74,9 @@ class HumanController:
         d_power = self._ramp(1, pressed[k.power_up] - pressed[k.power_down], dt) * config.POWER_SPEED * dt
         game.adjust_aim(self.index, d_angle, d_power)
         game.move(self.index, pressed[k.move_right] - pressed[k.move_left], dt)
+        if self._jump_requested:
+            self._jump_requested = False
+            game.jump(self.index)
         if self._weapon_step:
             game.cycle_weapon(self.index, self._weapon_step)
             self._weapon_step = 0

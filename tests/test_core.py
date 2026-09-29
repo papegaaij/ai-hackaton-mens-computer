@@ -85,6 +85,80 @@ def test_both_players_shoot_at_the_same_time():
     assert not g.projectiles  # both landed or left the field
 
 
+def flat_game(ground_y=400):
+    g = Game(seed=3, countdown=0)
+    g.terrain.mask[:] = False
+    g.terrain.mask[ground_y:, :] = True
+    for p in g.players:
+        g._settle(p)
+    return g
+
+
+def test_tank_drives_on_flat_ground_and_uses_fuel():
+    g = flat_game()
+    p = g.players[0]
+    x0 = p.x
+    for _ in range(60):
+        g.move(0, 1, 1 / 60)
+    assert abs(p.x - x0 - config.PLAYER_SPEED) < 1.0
+    assert abs(p.fuel - (config.PLAYER_FUEL - config.PLAYER_SPEED)) < 1.0
+
+
+def test_steep_wall_blocks_driving():
+    g = flat_game()
+    p = g.players[0]
+    wall_x = int(p.x) + 20
+    g.terrain.mask[300:, wall_x:wall_x + 40] = True
+    for _ in range(60):
+        g.move(0, 1, 1 / 60)
+    assert p.x < wall_x
+
+
+def test_jump_goes_up_and_lands():
+    g = flat_game()
+    p = g.players[0]
+    y0 = p.y
+    assert g.jump(0)
+    assert p.fuel == config.PLAYER_FUEL - config.JUMP_FUEL
+    assert not g.jump(0)  # no double jump
+    g.update(0.3)
+    assert p.airborne and y0 - p.y > 30
+    g.update(1.5)
+    assert not p.airborne and p.y == y0
+
+
+def test_jump_needs_fuel():
+    g = flat_game()
+    g.players[0].fuel = config.JUMP_FUEL - 1
+    assert not g.jump(0)
+
+
+def test_jump_clears_wall_that_blocks_driving():
+    g = flat_game(ground_y=400)
+    p = g.players[0]
+    wall_x = int(p.x) + 20
+    g.terrain.mask[370:, wall_x:wall_x + 300] = True  # 30 px step up, too steep to drive
+    assert g.jump(0)
+    for _ in range(120):
+        g.move(0, 1, 1 / 60)
+        g.update(1 / 60)
+    assert p.x > wall_x and not p.airborne
+    assert g._feet(p) == 370  # landed on top of the wall
+
+
+def test_tank_falls_off_steep_drop():
+    g = flat_game(ground_y=400)
+    p = g.players[0]
+    edge = int(p.x) + 5
+    g.terrain.mask[:, edge:] = False
+    g.terrain.mask[500:, edge:] = True  # 100 px cliff down
+    for _ in range(20):
+        g.move(0, 1, 1 / 60)
+    assert p.airborne and g._feet(p) < 500  # falling, not teleported
+    g.update(2.0)
+    assert not p.airborne and g._feet(p) == 500
+
+
 def test_fuel_refills_slowly():
     g = Game(seed=3, countdown=0)
     p = g.players[0]

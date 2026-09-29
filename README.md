@@ -18,6 +18,7 @@ python3 -m venv .venv
 | Power | W / S | I / K |
 | Angle | A / D | J / L |
 | Move (uses fuel, refills slowly) | Q / E | U / O |
+| Jump (over steep sections; uses fuel) | F | H |
 | Next weapon | R | P |
 | Fire | Space | Enter |
 
