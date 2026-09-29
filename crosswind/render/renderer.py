@@ -116,12 +116,12 @@ class Renderer:
             p.y += p.vy * dt
         self.particles = [p for p in self.particles if p.life > 0]
 
-    def _spawn_explosion(self, x: float, y: float, r: float) -> None:
-        self.shake = min(12.0, r * 0.3)
+    def _spawn_explosion(self, x: float, y: float, r: float, dirt: bool = False) -> None:
+        self.shake = min(12.0, r * (0.1 if dirt else 0.3))
         for _ in range(int(r * 2)):
             a = self.rng.uniform(0, 2 * math.pi)
-            sp = self.rng.uniform(40, r * 8)
-            col = self.rng.choice(theme.EXPLOSION)
+            sp = self.rng.uniform(40, r * (3 if dirt else 8))
+            col = self.rng.choice(theme.DIRT if dirt else theme.EXPLOSION)
             self.particles.append(Particle(x, y, math.cos(a) * sp, math.sin(a) * sp - 60,
                                            self.rng.uniform(0.4, 1.1), col, self.rng.choice((2, 3, 4))))
 
@@ -129,7 +129,7 @@ class Renderer:
     def draw(self, screen: pygame.Surface, game: Game, dt: float) -> None:
         self.time += dt
         for ev in game.events:
-            self._spawn_explosion(ev.x, ev.y, ev.radius)
+            self._spawn_explosion(ev.x, ev.y, ev.radius, ev.dirt)
         game.events.clear()
         self._update_particles(game, dt)
 
@@ -162,10 +162,21 @@ class Renderer:
             for i, (tx, ty) in enumerate(pts):
                 f = (i + 1) / len(pts)
                 pygame.draw.circle(screen, tuple(int(c * f) for c in theme.TRAIL), (tx + ox, ty + oy), 1 + f * 2)
+            w = pr.weapon
+            if pr.age < w.burn:  # rocket exhaust
+                speed = math.hypot(pr.vx, pr.vy) or 1.0
+                for _ in range(2):
+                    self.particles.append(Particle(
+                        pr.x - pr.vx / speed * 6, pr.y - pr.vy / speed * 6,
+                        -pr.vx * 0.2 + self.rng.uniform(-30, 30), -pr.vy * 0.2 + self.rng.uniform(-30, 30),
+                        self.rng.uniform(0.15, 0.35), self.rng.choice(theme.EXPLOSION[1:]), 2))
             g = self._shot_glow
             screen.blit(g, (pr.x + ox - g.get_width() / 2, pr.y + oy - g.get_height() / 2), special_flags=pygame.BLEND_ADD)
-            pygame.draw.circle(screen, (255, 255, 255), (pr.x + ox, pr.y + oy), 5)
-            pygame.draw.circle(screen, theme.PLAYER_COLORS[pr.owner], (pr.x + ox, pr.y + oy), 3)
+            core = theme.PLAYER_COLORS[pr.owner]
+            if w.fuse and pr.timer is not None and math.sin(self.time * 25) > 0:
+                core = theme.FUSE
+            pygame.draw.circle(screen, (255, 255, 255), (pr.x + ox, pr.y + oy), w.size + 2)
+            pygame.draw.circle(screen, core, (pr.x + ox, pr.y + oy), w.size)
             if pr.y < 0:  # off-screen marker
                 pygame.draw.polygon(screen, theme.TRAIL, [(pr.x, 4), (pr.x - 6, 14), (pr.x + 6, 14)])
 

@@ -30,6 +30,8 @@ POWER_SPEED = 35.0       # power units/s at full speed
 AIM_FINE = 0.2           # fraction of full aim speed when a key is first pressed
 AIM_RAMP = 0.6           # s of holding a key to reach full aim speed
 
-RELOAD_TIME = 2.0        # s between two shots of the same player
+ENERGY_MAX = 100.0       # a full energy bar; each weapon costs part of it
+ENERGY_REGEN = 30.0      # energy/s refilled (full bar in ~3.3 s)
+FIRE_COOLDOWN = 0.25     # s between any two shots of the same player
 START_COUNTDOWN = 3.0    # s before the first shot is allowed
 END_DELAY = 1.5          # s after the last kill before the game is over; shots in the air still land

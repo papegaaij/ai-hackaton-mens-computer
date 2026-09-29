@@ -55,3 +55,13 @@ class Terrain:
         hole = (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
         self.mask[y0:y1, x0:x1] &= ~hole
         self.version += 1
+
+    def fill_circle(self, cx: float, cy: float, r: float) -> None:
+        """Add a disc of solid ground (the opposite of `carve_circle`)."""
+        x0, x1 = max(0, int(cx - r)), min(self.width, int(cx + r) + 1)
+        y0, y1 = max(0, int(cy - r)), min(self.height, int(cy + r) + 1)
+        if x0 >= x1 or y0 >= y1:
+            return
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+        self.mask[y0:y1, x0:x1] |= (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
+        self.version += 1

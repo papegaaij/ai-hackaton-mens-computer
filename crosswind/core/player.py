@@ -13,14 +13,11 @@ class Player:
     hp: float = config.PLAYER_HP
     fuel: float = config.PLAYER_FUEL
     weapon: int = 0
-    reload: float = 0.0    # seconds until this player can fire again
+    energy: float = config.ENERGY_MAX  # spent on shots, refills over time
+    cooldown: float = 0.0  # seconds until this player may fire again
     vy: float = 0.0        # vertical speed while airborne (px/s, down is positive)
     airborne: bool = False
 
     @property
     def alive(self) -> bool:
         return self.hp > 0
-
-    @property
-    def ready(self) -> bool:
-        return self.alive and self.reload <= 0

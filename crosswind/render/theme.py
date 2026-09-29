@@ -19,6 +19,8 @@ SPORE = (190, 255, 120)      # glowing spores (jungle-style wind effect)
 DUST = (240, 150, 90)        # faint dust streaks
 TRAIL = (255, 240, 160)
 EXPLOSION = ((255, 255, 220), (255, 170, 60), (255, 90, 40))
+DIRT = ((170, 90, 50), (120, 60, 35), (210, 140, 90))  # Dirt Bomb puff
+FUSE = (255, 70, 50)         # blink of a bouncer about to go off
 
 PLAYER_COLORS = ((110, 240, 255), (200, 255, 110))
 HUD_TEXT = (255, 236, 220)

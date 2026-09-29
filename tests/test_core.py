@@ -8,7 +8,7 @@ from crosswind.core import physics
 from crosswind.core.actions import FireAction
 from crosswind.core.game import Game, Phase
 from crosswind.core.terrain import Terrain
-from crosswind.core.weapons import Weapon
+from crosswind.core.weapons import BOMBLET, WEAPONS, Weapon
 from crosswind.core.wind import Wind
 
 
@@ -62,15 +62,42 @@ def test_no_firing_during_countdown():
     assert g.fire(0, FireAction(90, 40, 0))
 
 
-def test_fire_starts_recharge_and_blocks_refire():
+def weapon(name):
+    return next(i for i, w in enumerate(WEAPONS) if w.name == name)
+
+
+def test_cooldown_blocks_instant_refire():
     g = Game(seed=3, countdown=0)
-    assert g.fire(0, FireAction(90, 40, 0))
-    assert not g.fire(0, FireAction(90, 40, 0))
-    assert len(g.projectiles) == 1
-    g.update(config.RELOAD_TIME - 0.1)
-    assert not g.fire(0, FireAction(90, 40, 0))
-    g.update(0.2)
-    assert g.fire(0, FireAction(90, 40, 0))
+    assert g.fire(0, FireAction(90, 40, weapon("Spark")))
+    assert not g.fire(0, FireAction(90, 40, weapon("Spark")))
+    g.update(config.FIRE_COOLDOWN + 0.01)
+    assert g.fire(0, FireAction(90, 40, weapon("Spark")))
+
+
+def test_cheap_weapon_fires_in_bursts():
+    g = Game(seed=3, countdown=0)
+    shots = 0
+    for _ in range(4):
+        shots += g.fire(0, FireAction(90, 40, weapon("Spark")))
+        g.update(config.FIRE_COOLDOWN + 0.01)
+    assert shots == 4
+
+
+def test_megaton_needs_a_full_bar():
+    g = Game(seed=3, countdown=0)
+    p = g.players[0]
+    assert g.fire(0, FireAction(90, 40, weapon("Spark")))
+    g.update(config.FIRE_COOLDOWN + 0.01)
+    assert not g.fire(0, FireAction(90, 40, weapon("Megaton")))
+    g.update(config.ENERGY_MAX / config.ENERGY_REGEN)
+    assert p.energy == config.ENERGY_MAX
+    assert g.fire(0, FireAction(90, 40, weapon("Megaton")))
+    assert p.energy == 0
+
+
+def test_every_weapon_costs_energy():
+    costs = [w.energy for w in WEAPONS]
+    assert len(WEAPONS) == 8 and min(costs) > 0 and max(costs) == config.ENERGY_MAX
 
 
 def test_both_players_shoot_at_the_same_time():
@@ -159,6 +186,77 @@ def test_tank_falls_off_steep_drop():
     assert not p.airborne and g._feet(p) == 500
 
 
+def fire_and_wait(g, angle, power, name, max_t=15.0):
+    """Fire for player 0 and run until the first explosion (or build); returns it."""
+    assert g.fire(0, FireAction(angle, power, weapon(name)))
+    t = 0.0
+    while not g.events and t < max_t:
+        g.update(config.PHYSICS_DT)
+        t += config.PHYSICS_DT
+    assert g.events
+    return g.events[0]
+
+
+def test_rocket_drifts_less_than_plasma():
+    def drift(w):  # relative to the distance flown, since the rocket flies much further
+        calm = fly(physics.launch(0, 0, 60, 60, w, 0), 0.0, ground_y=0)
+        windy = fly(physics.launch(0, 0, 60, 60, w, 0), 80.0, ground_y=0)
+        return (windy.x - calm.x) / calm.x
+    assert drift(WEAPONS[weapon("Rocket")]) < drift(WEAPONS[weapon("Plasma Orb")]) * 0.5
+
+
+def test_cluster_splits_into_bomblets_at_apex():
+    g = flat_game()
+    assert g.fire(0, FireAction(60, 50, weapon("Cluster Bomb")))
+    while len(g.projectiles) == 1:
+        vy = g.projectiles[0].vy
+        g.update(config.PHYSICS_DT)
+    assert vy < 0  # still rising on the tick before the split
+    assert len(g.projectiles) == 5 and all(p.weapon is BOMBLET for p in g.projectiles)
+    assert len({round(p.vx) for p in g.projectiles}) == 5  # fanned out
+
+
+def test_driller_bores_through_a_hill():
+    g = flat_game()
+    x0 = g.players[0].x
+    hill_x = int(x0) + 300
+    g.terrain.mask[250:400, hill_x:hill_x + 40] = True  # 40 px thick wall in the way
+    ev = fire_and_wait(g, 30, 45, "Driller")
+    assert ev.x > hill_x + 40  # came out the other side before exploding
+
+
+def test_bouncer_bounces_before_exploding():
+    g = flat_game()
+    assert g.fire(0, FireAction(60, 45, weapon("Bouncer")))
+    p = g.projectiles[0]
+    while p.timer is None:
+        g.update(config.PHYSICS_DT)
+    landed_x = p.x
+    assert not g.events  # touching the ground did not set it off
+    g.update(WEAPONS[weapon("Bouncer")].fuse - 0.1)
+    assert g.projectiles and not g.events
+    g.update(0.2)
+    assert len(g.events) == 1 and g.events[0].x > landed_x  # rolled on, then blew up
+
+
+def test_dirt_bomb_builds_a_mound_without_damage():
+    g = flat_game()
+    before = g.terrain.mask.sum()
+    ev = fire_and_wait(g, 60, 45, "Dirt Bomb")
+    assert ev.dirt
+    assert g.terrain.mask.sum() > before
+    assert all(p.hp == config.PLAYER_HP for p in g.players)
+
+
+def test_megaton_carves_far_more_than_spark():
+    def carved(name, angle):
+        g = flat_game()
+        before = g.terrain.mask.sum()
+        fire_and_wait(g, angle, 45, name)
+        return before - g.terrain.mask.sum()
+    assert carved("Megaton", 60) > 10 * carved("Spark", 60)
+
+
 def test_fuel_refills_slowly():
     g = Game(seed=3, countdown=0)
     p = g.players[0]
@@ -227,14 +325,15 @@ def test_headless_random_play_without_pygame():
     rng = np.random.default_rng(0)
     g = Game(seed=0, countdown=0)
     games = 1
+    wanted = [0, 0]  # each player saves up for a randomly picked weapon
     for _ in range(int(300 / (1 / 30))):  # five simulated minutes at 30 fps
         if g.phase is Phase.GAME_OVER:
             g = Game(seed=int(rng.integers(1000)), countdown=0)
             games += 1
         for i in (0, 1):
             g.move(i, int(rng.integers(-1, 2)), 1 / 30)
-            if g.players[i].ready:
-                g.fire(i, FireAction(rng.uniform(10, 170), rng.uniform(20, 100), int(rng.integers(3))))
+            if g.fire(i, FireAction(rng.uniform(10, 170), rng.uniform(20, 100), wanted[i])):
+                wanted[i] = int(rng.integers(len(WEAPONS)))
         g.update(1 / 30)
     obs = g.observe(0)
     assert obs.dtype == np.float32 and np.isfinite(obs).all()

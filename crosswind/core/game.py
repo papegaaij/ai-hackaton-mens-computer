@@ -26,10 +26,11 @@ class Explosion:
     x: float
     y: float
     radius: float
+    dirt: bool = False  # a mound of earth was built instead of a crater
 
 
 class Game:
-    """A live duel: both players aim, move and fire at the same time, limited by a recharge per shot."""
+    """A live duel: both players aim, move and fire at the same time, paying for each shot with energy."""
 
     def __init__(self, seed: int | None = None, width: int = config.WIDTH, height: int = config.HEIGHT,
                  countdown: float = config.START_COUNTDOWN):
@@ -62,9 +63,11 @@ class Game:
     def can_act(self, index: int) -> bool:
         return self.phase is Phase.PLAYING and self.players[index].alive
 
-    def can_fire(self, index: int) -> bool:
-        """Not during the countdown and not while recharging."""
-        return self.can_act(index) and self.countdown <= 0 and self.players[index].ready
+    def can_fire(self, index: int, weapon: int | None = None) -> bool:
+        """Not during the countdown or cooldown, and only with enough energy for the (selected) weapon."""
+        p = self.players[index]
+        w = WEAPONS[(p.weapon if weapon is None else weapon) % len(WEAPONS)]
+        return self.can_act(index) and self.countdown <= 0 and p.cooldown <= 0 and p.energy >= w.energy
 
     def barrel_tip(self, p: Player) -> tuple[float, float]:
         rad = math.radians(p.angle)
@@ -115,16 +118,18 @@ class Game:
         return True
 
     def fire(self, index: int, action: FireAction) -> bool:
-        """Launch a shot for player `index`. Refused when `can_fire` is False."""
-        if not self.can_fire(index):
+        """Launch a shot for player `index`; costs the weapon's energy. Refused when `can_fire` is False."""
+        if not self.can_fire(index, action.weapon):
             return False
         p = self.players[index]
         p.angle = float(np.clip(action.angle, 0, 180))
         p.power = float(np.clip(action.power, 5, 100))
         p.weapon = action.weapon % len(WEAPONS)
+        weapon = WEAPONS[p.weapon]
         tx, ty = self.barrel_tip(p)
-        self.projectiles.append(physics.launch(tx, ty, p.angle, p.power, WEAPONS[p.weapon], p.index))
-        p.reload = config.RELOAD_TIME
+        self.projectiles.append(physics.launch(tx, ty, p.angle, p.power, weapon, p.index))
+        p.energy -= weapon.energy
+        p.cooldown = config.FIRE_COOLDOWN
         return True
 
     # ---- simulation ----------------------------------------------------
@@ -141,11 +146,12 @@ class Game:
             return
         self.countdown = max(0.0, self.countdown - dt)
         for pl in self.players:
-            pl.reload = max(0.0, pl.reload - dt)
+            pl.cooldown = max(0.0, pl.cooldown - dt)
+            pl.energy = min(config.ENERGY_MAX, pl.energy + config.ENERGY_REGEN * dt)
             pl.fuel = min(config.PLAYER_FUEL, pl.fuel + config.FUEL_REGEN * dt)
             if pl.airborne:
                 self._tick_airborne(pl, dt)
-        self.projectiles = [p for p in self.projectiles if self._tick_projectile(p, dt)]
+        self.projectiles = [q for p in self.projectiles for q in self._tick_projectile(p, dt)]
         if self._end_timer is not None:
             self._end_timer -= dt
             if self._end_timer <= 0:
@@ -158,20 +164,54 @@ class Game:
             p.airborne, p.vy = False, 0.0
             self._settle(p)
 
-    def _tick_projectile(self, p: physics.Projectile, dt: float) -> bool:
-        """Advance one projectile; returns False once it has exploded or left the field."""
+    def _tick_projectile(self, p: physics.Projectile, dt: float) -> list[physics.Projectile]:
+        """Advance one projectile; returns what is still flying afterwards: itself, its bomblets, or nothing."""
+        w = p.weapon
+        prev_x, prev_y = p.x, p.y
         physics.step(p, self.wind, self.terrain.height, dt)
         if not p.trail or math.dist(p.trail[-1], (p.x, p.y)) > 4:
             p.trail.append((p.x, p.y))
-        hit_player = any(
+        if self._touches_tank(p):
+            self._impact(p)
+            return []
+        if w.split and p.vy >= 0:  # top of the arc
+            return physics.split(p)
+        in_rock = physics.hits_terrain(p, self.terrain)
+        if p.timer is not None:  # driller boring on, or bouncer bouncing around
+            p.timer -= dt
+            if p.timer <= 0:
+                self._impact(p)
+                return []
+        elif in_rock and (w.drill or w.fuse):
+            p.timer = w.drill or w.fuse
+        elif in_rock:
+            self._impact(p)
+            return []
+        if in_rock and w.fuse:
+            physics.bounce(p, self.terrain, prev_x, prev_y, dt)
+        return [] if physics.out_of_bounds(p, self.terrain) else [p]
+
+    def _touches_tank(self, p: physics.Projectile) -> bool:
+        return any(
             pl.alive and math.dist((pl.x, pl.y), (p.x, p.y)) <= config.PLAYER_RADIUS
-            and not (pl.index == p.owner and len(p.trail) < 6)
+            and not (pl.index == p.owner and len(p.trail) < 6)  # don't hit yourself on the way out of the barrel
             for pl in self.players
         )
-        if hit_player or physics.hits_terrain(p, self.terrain):
-            self._explode(p.x, p.y, p.weapon.blast_radius, p.weapon.damage)
-            return False
-        return not physics.out_of_bounds(p, self.terrain)
+
+    def _impact(self, p: physics.Projectile) -> None:
+        w = p.weapon
+        if w.dirt:
+            self._build(p.x, p.y, w.blast_radius)
+        else:
+            self._explode(p.x, p.y, w.blast_radius, w.damage)
+
+    def _build(self, x: float, y: float, radius: float) -> None:
+        """Dirt Bomb: raise a mound of earth; tanks inside it are pushed up on top."""
+        self.terrain.fill_circle(x, y, radius)
+        self.events.append(Explosion(x, y, radius, dirt=True))
+        for pl in self.players:
+            if not pl.airborne:
+                self._settle(pl)
 
     def _explode(self, x: float, y: float, radius: float, damage: float) -> None:
         self.terrain.carve_circle(x, y, radius)
@@ -217,8 +257,8 @@ class Game:
         ground = np.array([self.terrain.surface_y(x) for x in xs]) / h
         head = np.array([
             me.x / w, me.y / h, me.hp / config.PLAYER_HP, me.angle / 180, me.power / 100,
-            me.reload / config.RELOAD_TIME,
-            them.x / w, them.y / h, them.hp / config.PLAYER_HP, them.reload / config.RELOAD_TIME,
+            me.energy / config.ENERGY_MAX, me.weapon / len(WEAPONS),
+            them.x / w, them.y / h, them.hp / config.PLAYER_HP, them.energy / config.ENERGY_MAX,
             self.wind / config.WIND_MAX,
         ])
         return np.concatenate([head, ground]).astype(np.float32)

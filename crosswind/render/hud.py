@@ -1,4 +1,4 @@
-"""HUD: per-player HP, fuel, recharge and aim; wind; start countdown; key help."""
+"""HUD: per-player HP, fuel, energy and aim; wind; start countdown; key help."""
 from __future__ import annotations
 
 import math
@@ -51,20 +51,26 @@ class Hud:
             pygame.draw.rect(screen, theme.HP_BACK, (x, 46, 260, 4))
             pygame.draw.rect(screen, theme.HUD_DIM, (x, 46, 260 * pl.fuel / config.PLAYER_FUEL, 4))
 
-            # recharge: fills up until the next shot is allowed
+            # energy bar, with a tick at what the selected weapon costs
+            weapon = WEAPONS[pl.weapon]
             armed = game.can_fire(pl.index)
-            charge = 1.0 - pl.reload / config.RELOAD_TIME
             pygame.draw.rect(screen, theme.HP_BACK, (x, 54, 260, 6), border_radius=3)
-            pygame.draw.rect(screen, col if armed else theme.HUD_DIM, (x, 54, 260 * charge, 6), border_radius=3)
+            pygame.draw.rect(screen, col if armed else theme.HUD_DIM,
+                             (x, 54, 260 * pl.energy / config.ENERGY_MAX, 6), border_radius=3)
+            cost_x = x + 260 * weapon.energy / config.ENERGY_MAX
+            pygame.draw.line(screen, theme.HUD_TEXT, (cost_x, 52), (cost_x, 61), 2)
             if not pl.alive:
                 status = "DOWN"
-            elif pl.reload > 0:
-                status = f"{pl.reload:.1f}s"
+            elif armed:
+                status = "READY"
+            elif pl.energy < weapon.energy:
+                status = f"{pl.energy:.0f}/{weapon.energy:.0f}"
             else:
-                status = "READY" if armed else ""  # blank during the countdown and after the game
+                status = ""  # countdown, cooldown or game over
             self._text(screen, status, (side_x, 51), self.small, col if armed else theme.HUD_DIM, right=not left)
 
-            aim = f"Angle {pl.angle:5.1f}   Power {pl.power:5.1f}   [{WEAPONS[pl.weapon].name}]"
+            aim = (f"Angle {pl.angle:5.1f}   Power {pl.power:5.1f}   "
+                   f"[{pl.weapon + 1}/{len(WEAPONS)} {weapon.name} - {weapon.energy:.0f}]")
             self._text(screen, aim, (x + 260 if not left else x, 65), self.small, right=not left)
 
         # wind indicator (centre)
