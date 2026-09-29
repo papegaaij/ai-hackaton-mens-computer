@@ -1,12 +1,36 @@
-"""Wind: one base value per turn, stronger at altitude."""
+"""Wind: a base value that drifts constantly toward random targets, stronger at altitude."""
+import math
+
 import numpy as np
 
 from crosswind import config
 
 
-def new_wind(rng: np.random.Generator) -> float:
-    """Base wind acceleration at ground level (px/s^2). Positive blows to the right."""
-    return float(rng.uniform(-config.WIND_MAX, config.WIND_MAX))
+class Wind:
+    """Base wind acceleration at ground level (px/s^2). Positive blows to the right.
+
+    Every WIND_SHIFT_MIN..WIND_SHIFT_MAX seconds a new random target is picked; the wind eases toward
+    it, so it never holds still for long and can turn while a shot is in the air.
+    """
+
+    def __init__(self, rng: np.random.Generator):
+        self.rng = rng
+        self.value = self._random_value()
+        self.target = self._random_value()
+        self._shift_in = self._random_interval()
+
+    def _random_value(self) -> float:
+        return float(self.rng.uniform(-config.WIND_MAX, config.WIND_MAX))
+
+    def _random_interval(self) -> float:
+        return float(self.rng.uniform(config.WIND_SHIFT_MIN, config.WIND_SHIFT_MAX))
+
+    def step(self, dt: float) -> None:
+        self._shift_in -= dt
+        if self._shift_in <= 0:
+            self.target = self._random_value()
+            self._shift_in = self._random_interval()
+        self.value += (self.target - self.value) * (1.0 - math.exp(-dt / config.WIND_RESPONSE))
 
 
 def wind_at(base: float, y: float, height: int) -> float:

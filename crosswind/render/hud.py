@@ -1,47 +1,71 @@
-"""HUD: HP bars, wind, aim and weapon, turn banner."""
+"""HUD: per-player HP, fuel, recharge and aim; wind; start countdown; key help."""
 from __future__ import annotations
+
+import math
 
 import pygame
 
 from crosswind import config
-from crosswind.core.game import Game, Phase
+from crosswind.core.game import Game
 from crosswind.core.weapons import WEAPONS
 from crosswind.render import theme
 
 
 class Hud:
-    def __init__(self) -> None:
+    FIRE_BANNER = 0.8  # s the "FIRE!" banner stays up after the countdown
+
+    def __init__(self, help_lines: list[str]) -> None:
         self.font = pygame.font.Font(None, 26)
         self.small = pygame.font.Font(None, 20)
-        self.big = pygame.font.Font(None, 64)
-        self.banner_timer = 0.0
-        self._last_turn = -1
+        self.big = pygame.font.Font(None, 96)
+        self.help_lines = help_lines  # one per player
+        self._fire_banner = 0.0
 
-    def _text(self, screen, text, pos, font=None, color=theme.HUD_TEXT, center=False):
+    def _text(self, screen, text, pos, font=None, color=theme.HUD_TEXT, center=False, right=False):
         surf = (font or self.font).render(text, True, color)
-        rect = surf.get_rect(center=pos) if center else surf.get_rect(topleft=pos)
+        if center:
+            rect = surf.get_rect(center=pos)
+        elif right:
+            rect = surf.get_rect(topright=pos)
+        else:
+            rect = surf.get_rect(topleft=pos)
         screen.blit(surf, rect)
         return rect
 
     def draw(self, screen: pygame.Surface, game: Game, dt: float) -> None:
-        w = screen.get_width()
-        panel = pygame.Surface((w, 64), pygame.SRCALPHA)
+        w, h = screen.get_size()
+        panel = pygame.Surface((w, 84), pygame.SRCALPHA)
         panel.fill(theme.HUD_PANEL)
         screen.blit(panel, (0, 0))
 
         for pl in game.players:
-            col = theme.PLAYER_COLORS[pl.index]
+            col = theme.PLAYER_COLORS[pl.index] if pl.alive else theme.HUD_DIM
             left = pl.index == 0
             x = 20 if left else w - 280
-            label = f"PLAYER {pl.index + 1}" + ("  <" if game.current == pl.index and not left else "")
-            if left and game.current == 0:
-                label = "> " + label
-            self._text(screen, label, (x, 8), color=col if game.current == pl.index else theme.HUD_DIM)
-            pygame.draw.rect(screen, theme.HP_BACK, (x, 32, 260, 12), border_radius=6)
-            pygame.draw.rect(screen, col, (x, 32, 260 * pl.hp / config.PLAYER_HP, 12), border_radius=6)
-            self._text(screen, f"{pl.hp:.0f}", (x + 264 if left else x - 34, 30), self.small)
-            pygame.draw.rect(screen, theme.HP_BACK, (x, 48, 260, 4))
-            pygame.draw.rect(screen, theme.HUD_DIM, (x, 48, 260 * pl.fuel / config.PLAYER_FUEL, 4))
+            side_x = x + 266 if left else x - 6  # numbers next to the bars, on the outside of the panel
+
+            self._text(screen, f"PLAYER {pl.index + 1}", (x, 8), color=col)
+            pygame.draw.rect(screen, theme.HP_BACK, (x, 30, 260, 12), border_radius=6)
+            pygame.draw.rect(screen, col, (x, 30, 260 * pl.hp / config.PLAYER_HP, 12), border_radius=6)
+            self._text(screen, f"{pl.hp:.0f}", (side_x, 29), self.small, right=not left)
+            pygame.draw.rect(screen, theme.HP_BACK, (x, 46, 260, 4))
+            pygame.draw.rect(screen, theme.HUD_DIM, (x, 46, 260 * pl.fuel / config.PLAYER_FUEL, 4))
+
+            # recharge: fills up until the next shot is allowed
+            armed = game.can_fire(pl.index)
+            charge = 1.0 - pl.reload / config.RELOAD_TIME
+            pygame.draw.rect(screen, theme.HP_BACK, (x, 54, 260, 6), border_radius=3)
+            pygame.draw.rect(screen, col if armed else theme.HUD_DIM, (x, 54, 260 * charge, 6), border_radius=3)
+            if not pl.alive:
+                status = "DOWN"
+            elif pl.reload > 0:
+                status = f"{pl.reload:.1f}s"
+            else:
+                status = "READY" if armed else ""  # blank during the countdown and after the game
+            self._text(screen, status, (side_x, 51), self.small, col if armed else theme.HUD_DIM, right=not left)
+
+            aim = f"Angle {pl.angle:5.1f}   Power {pl.power:5.1f}   [{WEAPONS[pl.weapon].name}]"
+            self._text(screen, aim, (x + 260 if not left else x, 65), self.small, right=not left)
 
         # wind indicator (centre)
         cx = w // 2
@@ -54,19 +78,19 @@ class Hud:
         pygame.draw.rect(screen, theme.SPORE, (bx, 30, bw, 8), border_radius=4)
         pygame.draw.line(screen, theme.HUD_TEXT, (cx, 26), (cx, 42), 2)
 
-        p = game.active
-        self._text(screen, f"Angle {p.angle:5.1f}   Power {p.power:5.1f}   [{WEAPONS[p.weapon].name}]   Turn {game.turn}",
-                   (cx, 52), self.small, center=True)
+        # key help, each player's keys on their own side
+        for i, line in enumerate(self.help_lines):
+            text = f"P{i + 1}  {line}"
+            if i == 0:
+                self._text(screen, text, (12, h - 22), self.small, theme.HUD_DIM)
+            else:
+                self._text(screen, text, (w - 12, h - 22), self.small, theme.HUD_DIM, right=True)
+        self._text(screen, "Esc menu", (cx, h - 14), self.small, theme.HUD_DIM, center=True)
 
-        help_text = "Left/Right angle  Up/Down power (Shift fine)  A/D move  Q/E weapon  Space fire  Esc menu"
-        self._text(screen, help_text, (w // 2, screen.get_height() - 14), self.small, theme.HUD_DIM, center=True)
-
-        # hot-seat banner
-        if game.turn != self._last_turn:
-            self._last_turn = game.turn
-            self.banner_timer = 1.6
-        if self.banner_timer > 0 and game.phase is Phase.AIMING:
-            self.banner_timer -= dt
-            col = theme.PLAYER_COLORS[game.current]
-            self._text(screen, f"PLAYER {game.current + 1} - GET READY", (w // 2, screen.get_height() // 3),
-                       self.big, col, center=True)
+        # start countdown: 3, 2, 1, FIRE!
+        if game.countdown > 0:
+            self._fire_banner = self.FIRE_BANNER
+            self._text(screen, str(math.ceil(game.countdown)), (cx, h // 3), self.big, theme.HUD_TEXT, center=True)
+        elif self._fire_banner > 0:
+            self._fire_banner -= dt
+            self._text(screen, "FIRE!", (cx, h // 3), self.big, theme.ROCK_EDGE, center=True)

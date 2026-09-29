@@ -5,7 +5,7 @@ import math
 
 import pygame
 
-from crosswind.control.human import HumanController
+from crosswind.control.human import P1_KEYS, P2_KEYS, HumanController
 from crosswind.core.game import Game, Phase
 from crosswind.render import theme
 from crosswind.render.hud import Hud
@@ -28,12 +28,13 @@ class MenuScene:
 
     def update(self, dt):
         self.t += dt
+        self.preview.update(dt)  # keeps the wind drifting behind the title
         self.renderer.draw(self.screen, self.preview, dt)
         w, h = self.screen.get_size()
         for text, font, y, col in (
             ("CROSSWIND", self.title, h * 0.3, theme.ROCK_EDGE),
             ("Artillery duel on a red dust planet", self.font, h * 0.3 + 70, theme.HUD_TEXT),
-            ("2 players, one keyboard. Take turns.", self.font, h * 0.3 + 110, theme.HUD_DIM),
+            ("2 players, one keyboard. Fire at will.", self.font, h * 0.3 + 110, theme.HUD_DIM),
         ):
             s = font.render(text, True, col)
             self.screen.blit(s, s.get_rect(center=(w / 2, y)))
@@ -44,34 +45,41 @@ class MenuScene:
 
 
 class BattleScene:
+    REMATCH_GRACE = 1.0  # s on the game-over screen before rematch keys count, so mashing fire can't skip it
+
     def __init__(self, screen: pygame.Surface, seed: int | None = None):
         self.screen = screen
         self.game = Game(seed=seed)
         self.renderer = Renderer(*screen.get_size())
-        self.hud = Hud()
-        # Hot-seat: two separate human controllers sharing the keyboard. Swap one for an AI later.
-        self.controllers = [HumanController(), HumanController()]
+        # Two human controllers sharing the keyboard, each on its own keys. Swap one for an AI later.
+        self.controllers = [HumanController(0, P1_KEYS), HumanController(1, P2_KEYS)]
+        self.hud = Hud([c.keys.describe() for c in self.controllers])
         self.big = pygame.font.Font(None, 90)
         self.font = pygame.font.Font(None, 34)
+        self._over_time = 0.0
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 return MenuScene(self.screen)
-            if self.game.phase is Phase.GAME_OVER and event.key in (pygame.K_r, pygame.K_RETURN):
+            if (self.game.phase is Phase.GAME_OVER and self._over_time >= self.REMATCH_GRACE
+                    and event.key in (pygame.K_r, pygame.K_RETURN)):
                 return BattleScene(self.screen)
-        if self.game.phase is Phase.AIMING:
-            ctrl = self.controllers[self.game.current]
-            if hasattr(ctrl, "handle_event"):
-                ctrl.handle_event(event)
+        if self.game.phase is Phase.PLAYING:
+            for ctrl in self.controllers:
+                if hasattr(ctrl, "handle_event"):
+                    ctrl.handle_event(event)
         return self
 
     def update(self, dt):
         g = self.game
-        if g.phase is Phase.AIMING:
-            action = self.controllers[g.current].update(g, dt)
-            if action is not None:
-                g.fire(action)
+        if g.phase is Phase.PLAYING:
+            for i, ctrl in enumerate(self.controllers):
+                action = ctrl.update(g, dt)
+                if action is not None:
+                    g.fire(i, action)
+        else:
+            self._over_time += dt
         g.update(dt)
         self.renderer.draw(self.screen, g, dt)
         self.hud.draw(self.screen, g, dt)

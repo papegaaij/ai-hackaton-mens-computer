@@ -13,13 +13,11 @@ from crosswind.core.actions import FireAction
 from crosswind.core.player import Player
 from crosswind.core.terrain import Terrain
 from crosswind.core.weapons import WEAPONS
-from crosswind.core.wind import new_wind
+from crosswind.core.wind import Wind
 
 
 class Phase(Enum):
-    AIMING = auto()
-    IN_FLIGHT = auto()
-    RESOLVING = auto()
+    PLAYING = auto()
     GAME_OVER = auto()
 
 
@@ -31,21 +29,23 @@ class Explosion:
 
 
 class Game:
-    def __init__(self, seed: int | None = None, width: int = config.WIDTH, height: int = config.HEIGHT):
+    """A live duel: both players aim, move and fire at the same time, limited by a recharge per shot."""
+
+    def __init__(self, seed: int | None = None, width: int = config.WIDTH, height: int = config.HEIGHT,
+                 countdown: float = config.START_COUNTDOWN):
         self.rng = np.random.default_rng(seed)
         self.terrain = Terrain(width, height, self.rng)
         self.players = [
             self._spawn(0, width * 0.15, 45.0),
             self._spawn(1, width * 0.85, 135.0),
         ]
-        self.current = 0
-        self.turn = 1
-        self.wind = new_wind(self.rng)
-        self.phase = Phase.AIMING
-        self.projectile: physics.Projectile | None = None
+        self._wind = Wind(self.rng)
+        self.phase = Phase.PLAYING
+        self.countdown = countdown  # seconds before anyone may fire
+        self.projectiles: list[physics.Projectile] = []
         self.winner: int | None = None
         self.events: list[Explosion] = []  # consumed by the renderer
-        self._resolve_timer = 0.0
+        self._end_timer: float | None = None
         self._accum = 0.0
 
     def _spawn(self, index: int, x: float, angle: float) -> Player:
@@ -55,8 +55,16 @@ class Game:
 
     # ---- queries -------------------------------------------------------
     @property
-    def active(self) -> Player:
-        return self.players[self.current]
+    def wind(self) -> float:
+        """Current base wind at ground level (px/s^2)."""
+        return self._wind.value
+
+    def can_act(self, index: int) -> bool:
+        return self.phase is Phase.PLAYING and self.players[index].alive
+
+    def can_fire(self, index: int) -> bool:
+        """Not during the countdown and not while recharging."""
+        return self.can_act(index) and self.countdown <= 0 and self.players[index].ready
 
     def barrel_tip(self, p: Player) -> tuple[float, float]:
         rad = math.radians(p.angle)
@@ -64,22 +72,23 @@ class Game:
         return p.x + math.cos(rad) * length, p.y - config.PLAYER_RADIUS * 0.5 - math.sin(rad) * length
 
     # ---- input API (used by controllers) ---------------------------------
-    def adjust_aim(self, d_angle: float, d_power: float) -> None:
-        if self.phase is not Phase.AIMING:
+    def adjust_aim(self, index: int, d_angle: float, d_power: float) -> None:
+        if not self.can_act(index):
             return
-        p = self.active
+        p = self.players[index]
         p.angle = float(np.clip(p.angle + d_angle, 0, 180))
         p.power = float(np.clip(p.power + d_power, 5, 100))
 
-    def cycle_weapon(self, step: int) -> None:
-        if self.phase is Phase.AIMING:
-            self.active.weapon = (self.active.weapon + step) % len(WEAPONS)
+    def cycle_weapon(self, index: int, step: int) -> None:
+        if self.can_act(index):
+            p = self.players[index]
+            p.weapon = (p.weapon + step) % len(WEAPONS)
 
-    def move(self, direction: int, dt: float) -> None:
-        """Drive the active tank along the ground; costs fuel, blocked by steep slopes."""
-        if self.phase is not Phase.AIMING or direction == 0:
+    def move(self, index: int, direction: int, dt: float) -> None:
+        """Drive a tank along the ground; costs fuel, blocked by steep slopes."""
+        if not self.can_act(index) or direction == 0:
             return
-        p = self.active
+        p = self.players[index]
         dist = min(config.PLAYER_SPEED * dt, p.fuel)
         if dist <= 0:
             return
@@ -91,16 +100,17 @@ class Game:
         p.x = nx
         self._settle(p)
 
-    def fire(self, action: FireAction) -> bool:
-        if self.phase is not Phase.AIMING:
+    def fire(self, index: int, action: FireAction) -> bool:
+        """Launch a shot for player `index`. Refused when `can_fire` is False."""
+        if not self.can_fire(index):
             return False
-        p = self.active
+        p = self.players[index]
         p.angle = float(np.clip(action.angle, 0, 180))
         p.power = float(np.clip(action.power, 5, 100))
         p.weapon = action.weapon % len(WEAPONS)
         tx, ty = self.barrel_tip(p)
-        self.projectile = physics.launch(tx, ty, p.angle, p.power, WEAPONS[p.weapon], p.index)
-        self.phase = Phase.IN_FLIGHT
+        self.projectiles.append(physics.launch(tx, ty, p.angle, p.power, WEAPONS[p.weapon], p.index))
+        p.reload = config.RELOAD_TIME
         return True
 
     # ---- simulation ----------------------------------------------------
@@ -112,16 +122,21 @@ class Game:
             self._tick(config.PHYSICS_DT)
 
     def _tick(self, dt: float) -> None:
-        if self.phase is Phase.IN_FLIGHT:
-            self._tick_projectile(dt)
-        elif self.phase is Phase.RESOLVING:
-            self._resolve_timer -= dt
-            if self._resolve_timer <= 0:
-                self._next_turn()
+        self._wind.step(dt)
+        if self.phase is Phase.GAME_OVER:
+            return
+        self.countdown = max(0.0, self.countdown - dt)
+        for pl in self.players:
+            pl.reload = max(0.0, pl.reload - dt)
+            pl.fuel = min(config.PLAYER_FUEL, pl.fuel + config.FUEL_REGEN * dt)
+        self.projectiles = [p for p in self.projectiles if self._tick_projectile(p, dt)]
+        if self._end_timer is not None:
+            self._end_timer -= dt
+            if self._end_timer <= 0:
+                self._finish()
 
-    def _tick_projectile(self, dt: float) -> None:
-        p = self.projectile
-        assert p is not None
+    def _tick_projectile(self, p: physics.Projectile, dt: float) -> bool:
+        """Advance one projectile; returns False once it has exploded or left the field."""
         physics.step(p, self.wind, self.terrain.height, dt)
         if not p.trail or math.dist(p.trail[-1], (p.x, p.y)) > 4:
             p.trail.append((p.x, p.y))
@@ -132,8 +147,8 @@ class Game:
         )
         if hit_player or physics.hits_terrain(p, self.terrain):
             self._explode(p.x, p.y, p.weapon.blast_radius, p.weapon.damage)
-        elif physics.out_of_bounds(p, self.terrain):
-            self._begin_resolve()
+            return False
+        return not physics.out_of_bounds(p, self.terrain)
 
     def _explode(self, x: float, y: float, radius: float, damage: float) -> None:
         self.terrain.carve_circle(x, y, radius)
@@ -145,28 +160,18 @@ class Game:
                 pl.hp = max(0.0, pl.hp - damage * (1 - d / reach))
         for pl in self.players:
             self._settle(pl)
-        self._begin_resolve()
+        if self._end_timer is None and sum(pl.alive for pl in self.players) <= 1:
+            self._end_timer = config.END_DELAY
 
     def _settle(self, p: Player) -> None:
         """Drop the tank onto the ground beneath it."""
         p.y = self.terrain.surface_y(p.x) - config.PLAYER_RADIUS * 0.5
 
-    def _begin_resolve(self) -> None:
-        self.projectile = None
-        self.phase = Phase.RESOLVING
-        self._resolve_timer = config.RESOLVE_DELAY
-
-    def _next_turn(self) -> None:
+    def _finish(self) -> None:
         alive = [p for p in self.players if p.alive]
-        if len(alive) <= 1:
-            self.phase = Phase.GAME_OVER
-            self.winner = alive[0].index if alive else None
-            return
-        self.current = (self.current + 1) % len(self.players)
-        self.turn += 1
-        self.wind = new_wind(self.rng)
-        self.active.fuel = config.PLAYER_FUEL
-        self.phase = Phase.AIMING
+        self.phase = Phase.GAME_OVER
+        self.winner = alive[0].index if len(alive) == 1 else None
+        self.projectiles.clear()
 
     # ---- RL hook (stub for later) --------------------------------------
     def observe(self, index: int, samples: int = 32) -> np.ndarray:
@@ -177,7 +182,8 @@ class Game:
         ground = np.array([self.terrain.surface_y(x) for x in xs]) / h
         head = np.array([
             me.x / w, me.y / h, me.hp / config.PLAYER_HP, me.angle / 180, me.power / 100,
-            them.x / w, them.y / h, them.hp / config.PLAYER_HP,
+            me.reload / config.RELOAD_TIME,
+            them.x / w, them.y / h, them.hp / config.PLAYER_HP, them.reload / config.RELOAD_TIME,
             self.wind / config.WIND_MAX,
         ])
         return np.concatenate([head, ground]).astype(np.float32)

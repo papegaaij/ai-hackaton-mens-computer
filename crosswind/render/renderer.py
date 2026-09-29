@@ -8,7 +8,7 @@ import numpy as np
 import pygame
 
 from crosswind import config
-from crosswind.core.game import Game, Phase
+from crosswind.core.game import Game
 from crosswind.core.wind import wind_at
 from crosswind.render import theme
 
@@ -157,8 +157,7 @@ class Renderer:
         for pl in game.players:
             self._draw_tank(screen, game, pl, ox, oy)
 
-        if game.projectile is not None:
-            pr = game.projectile
+        for pr in game.projectiles:
             pts = pr.trail[-60:]
             for i, (tx, ty) in enumerate(pts):
                 f = (i + 1) / len(pts)
@@ -180,8 +179,7 @@ class Renderer:
             col = (70, 60, 90)
         r = config.PLAYER_RADIUS
         x, y = pl.x + ox, pl.y + oy
-        active = game.current == pl.index and game.phase is Phase.AIMING
-        if active:
+        if game.can_fire(pl.index):
             pulse = 0.5 + 0.5 * math.sin(self.time * 5)
             glow = pygame.Surface((r * 5, r * 5), pygame.SRCALPHA)
             pygame.draw.circle(glow, (*col, int(40 + 40 * pulse)), (r * 2.5, r * 2.5), r * 2)
