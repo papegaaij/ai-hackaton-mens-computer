@@ -23,7 +23,7 @@ python3 -m venv .venv
 | Next weapon | ` | ? |
 | Fire | Left Shift | Right Shift |
 
-Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · M: mute sound · R/Enter: rematch.
+Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · M: mute sound · F10: full screen · R/Enter: rematch.
 A 3-2-1 countdown starts each match; you can aim during it but not fire.
 
 ## Computer players
