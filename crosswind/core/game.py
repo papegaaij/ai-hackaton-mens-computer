@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -43,6 +44,18 @@ class Impact:
     power: float
 
 
+@dataclass
+class SoundEvent:
+    """Something audible happened. Pure data: the audio layer decides what it sounds like."""
+    name: str                 # launch, explode, dirt, split, bounce, drill, hit, down, win, draw,
+                              # count, go, ready, no_energy, switch, jump, land, gust
+    x: float = 0.0
+    y: float = 0.0
+    player: int | None = None
+    weapon: str = ""
+    size: float = 0.0         # blast radius, damage, bounce count or countdown number, depending on name
+
+
 class Game:
     """A live duel: both players aim, move and fire at the same time, paying for each shot with energy."""
 
@@ -60,6 +73,9 @@ class Game:
         self.projectiles: list[physics.Projectile] = []
         self.winner: int | None = None
         self.events: list[Explosion] = []  # consumed by the renderer
+        self.sounds: deque[SoundEvent] = deque(maxlen=256)  # consumed by the audio layer (bounded when nobody listens)
+        if countdown > 0:
+            self._sound("count", size=math.ceil(countdown))
         self._end_timer: float | None = None
         self._accum = 0.0
         self.time = 0.0  # simulated seconds since the start
@@ -70,6 +86,10 @@ class Game:
         p = Player(index, x, 0.0, angle)
         self._settle(p)
         return p
+
+    def _sound(self, name: str, x: float = 0.0, y: float = 0.0, player: int | None = None,
+               weapon: str = "", size: float = 0.0) -> None:
+        self.sounds.append(SoundEvent(name, x, y, player, weapon, size))
 
     # ---- queries -------------------------------------------------------
     @property
@@ -106,6 +126,7 @@ class Game:
         if self.can_act(index) and step:
             p = self.players[index]
             p.weapon = (p.weapon + (1 if step > 0 else -1)) % len(WEAPONS)
+            self._sound("switch", p.x, p.y, index, WEAPONS[p.weapon].name, p.weapon)
 
     def move(self, index: int, direction: int, dt: float) -> None:
         """Drive a tank along the ground, or steer it in the air; costs fuel, blocked by steep slopes and walls."""
@@ -135,6 +156,7 @@ class Game:
         p.fuel -= config.JUMP_FUEL
         p.vy = -config.JUMP_SPEED
         p.airborne = True
+        self._sound("jump", p.x, p.y, index)
         return True
 
     def fire(self, index: int) -> bool:
@@ -143,6 +165,9 @@ class Game:
         Refused when `can_fire` is False.
         """
         if not self.can_fire(index):
+            p = self.players[index]
+            if self.can_act(index) and self.countdown <= 0 and p.cooldown <= 0:  # refused only for lack of energy
+                self._sound("no_energy", p.x, p.y, index)
             return False
         p = self.players[index]
         weapon = WEAPONS[p.weapon]
@@ -152,6 +177,7 @@ class Game:
         self.projectiles.append(shot)
         p.energy -= weapon.energy
         p.cooldown = config.FIRE_COOLDOWN
+        self._sound("launch", tx, ty, index, weapon.name, weapon.blast_radius)
         return True
 
     # ---- simulation ----------------------------------------------------
@@ -164,13 +190,23 @@ class Game:
 
     def _tick(self, dt: float) -> None:
         self.time += dt
+        target = self._wind.target
         self._wind.step(dt)
+        if self._wind.target != target:
+            self._sound("gust", size=self._wind.target)
         if self.phase is Phase.GAME_OVER:
             return
+        before = self.countdown
         self.countdown = max(0.0, self.countdown - dt)
+        if math.ceil(before) != math.ceil(self.countdown):
+            self._sound("count" if self.countdown > 0 else "go", size=math.ceil(self.countdown))
         for pl in self.players:
             pl.cooldown = max(0.0, pl.cooldown - dt)
+            cost = WEAPONS[pl.weapon].energy
+            was_short = pl.energy < cost
             pl.energy = min(config.ENERGY_MAX, pl.energy + config.ENERGY_REGEN * dt)
+            if was_short and pl.energy >= cost and pl.alive and self.countdown <= 0:
+                self._sound("ready", pl.x, pl.y, pl.index)
             pl.fuel = min(config.PLAYER_FUEL, pl.fuel + config.FUEL_REGEN * dt)
             if pl.airborne:
                 self._tick_airborne(pl, dt)
@@ -186,6 +222,7 @@ class Game:
         if p.vy >= 0 and self._feet(p) >= self.terrain.surface_y(p.x):
             p.airborne, p.vy = False, 0.0
             self._settle(p)
+            self._sound("land", p.x, p.y, p.index)
 
     def _tick_projectile(self, p: physics.Projectile, dt: float) -> list[physics.Projectile]:
         """Advance one projectile; returns what is still flying afterwards: itself, its bomblets, or nothing."""
@@ -198,6 +235,7 @@ class Game:
             self._impact(p)
             return []
         if w.split and p.vy >= 0:  # top of the arc
+            self._sound("split", p.x, p.y, p.owner, w.name)
             return physics.split(p)
         in_rock = physics.hits_terrain(p, self.terrain)
         if p.timer is not None:  # driller boring on, or bouncer bouncing around
@@ -207,11 +245,18 @@ class Game:
                 return []
         elif in_rock and (w.drill or w.fuse):
             p.timer = w.drill or w.fuse
+            if w.drill:
+                self._sound("drill", p.x, p.y, p.owner, w.name)
         elif in_rock:
             self._impact(p)
             return []
         if in_rock and w.fuse:
+            speed = math.hypot(p.vx, p.vy)
             physics.bounce(p, self.terrain, prev_x, prev_y, dt)
+            if speed > 60 and p.age - p.last_bounce > 0.15:  # a real bounce, not rolling
+                p.last_bounce = p.age
+                self._sound("bounce", p.x, p.y, p.owner, w.name, p.bounces)
+                p.bounces += 1
         return [] if physics.out_of_bounds(p, self.terrain) else [p]
 
     def _touches_tank(self, p: physics.Projectile) -> bool:
@@ -226,8 +271,9 @@ class Game:
         self.last_impact[p.owner] = Impact(p.x, p.y, self.time, p.weapon_index, *p.aim)
         if w.dirt:
             self._build(p.x, p.y, w.blast_radius)
+            self._sound("dirt", p.x, p.y, p.owner, w.name, w.blast_radius)
         else:
-            self._explode(p.x, p.y, w.blast_radius, w.damage)
+            self._explode(p.x, p.y, w.blast_radius, w.damage, p.owner, w.name)
 
     def _build(self, x: float, y: float, radius: float) -> None:
         """Dirt Bomb: raise a mound of earth; tanks inside it are pushed up on top."""
@@ -237,14 +283,21 @@ class Game:
             if not pl.airborne:
                 self._settle(pl)
 
-    def _explode(self, x: float, y: float, radius: float, damage: float) -> None:
+    def _explode(self, x: float, y: float, radius: float, damage: float,
+                 owner: int | None = None, weapon: str = "") -> None:
         self.terrain.carve_circle(x, y, radius)
         self.events.append(Explosion(x, y, radius))
+        self._sound("explode", x, y, owner, weapon, radius)
         for pl in self.players:
             d = math.dist((pl.x, pl.y), (x, y))
             reach = radius + config.PLAYER_RADIUS
-            if d < reach:
-                pl.hp = max(0.0, pl.hp - damage * (1 - d / reach))
+            if d < reach and pl.alive:
+                dmg = damage * (1 - d / reach)
+                pl.hp = max(0.0, pl.hp - dmg)
+                if dmg > 0:
+                    self._sound("hit", pl.x, pl.y, pl.index, weapon, dmg)
+                if not pl.alive:
+                    self._sound("down", pl.x, pl.y, pl.index)
         for pl in self.players:
             if not pl.airborne:
                 self._settle_or_fall(pl, 2)
@@ -270,4 +323,5 @@ class Game:
         alive = [p for p in self.players if p.alive]
         self.phase = Phase.GAME_OVER
         self.winner = alive[0].index if len(alive) == 1 else None
+        self._sound("win" if self.winner is not None else "draw", player=self.winner)
         self.projectiles.clear()
