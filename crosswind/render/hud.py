@@ -14,11 +14,11 @@ from crosswind.render import theme
 class Hud:
     FIRE_BANNER = 0.8  # s the "FIRE!" banner stays up after the countdown
 
-    def __init__(self, help_lines: list[list[str]]) -> None:
+    def __init__(self, help_lines: list[list[tuple[str, list[tuple[int, str]]]]]) -> None:
         self.font = pygame.font.Font(None, 26)
         self.small = pygame.font.Font(None, 20)
         self.big = pygame.font.Font(None, 96)
-        self.help_lines = help_lines  # per player: one line per control
+        self.help_lines = help_lines  # per player: (label, [(key, name)]) per control
         self._fire_banner = 0.0
 
     def _text(self, screen, text, pos, font=None, color=theme.HUD_TEXT, center=False, right=False):
@@ -31,6 +31,18 @@ class Hud:
             rect = surf.get_rect(topleft=pos)
         screen.blit(surf, rect)
         return rect
+
+    def _key_chip(self, screen, name: str, x: float, y: float, down: bool, color) -> int:
+        """Draw a key cap; lit up in the player's colour while held. Returns its width."""
+        text = self.small.render(name, True, theme.HUD_PANEL[:3] if down else theme.HUD_TEXT)
+        rect = pygame.Rect(x, y, max(22, text.get_width() + 10), 18)
+        if down:
+            pygame.draw.rect(screen, color, rect, border_radius=4)
+        else:
+            pygame.draw.rect(screen, theme.HP_BACK, rect, border_radius=4)
+            pygame.draw.rect(screen, theme.HUD_DIM, rect, width=1, border_radius=4)
+        screen.blit(text, text.get_rect(center=rect.center))
+        return rect.width
 
     def draw(self, screen: pygame.Surface, game: Game, dt: float) -> None:
         w, h = screen.get_size()
@@ -85,13 +97,20 @@ class Hud:
         pygame.draw.line(screen, theme.HUD_TEXT, (cx, 26), (cx, 42), 2)
 
         # key help, each player's keys on their own side
-        line_h = 18
+        pressed = pygame.key.get_pressed()
+        line_h = 20
         for i, lines in enumerate(self.help_lines):
-            top = h - 12 - line_h * (len(lines) + 1)
-            for j, line in enumerate([f"PLAYER {i + 1}"] + lines):
-                color = theme.PLAYER_COLORS[i] if j == 0 else theme.HUD_DIM
-                pos = (12, top + j * line_h) if i == 0 else (w - 12, top + j * line_h)
-                self._text(screen, line, pos, self.small, color, right=(i == 1))
+            right = i == 1
+            edge = w - 12 if right else 12
+            top = h - 10 - line_h * (len(lines) + 1)
+            self._text(screen, f"PLAYER {i + 1}", (edge, top), self.small, theme.PLAYER_COLORS[i], right=right)
+            for j, (label, keys) in enumerate(lines):
+                y = top + (j + 1) * line_h
+                label_x = edge - 150 if right else edge  # label column, then key chips
+                self._text(screen, label, (label_x, y + 2), self.small, theme.HUD_DIM)
+                x = edge - 150 + 62 if right else edge + 62
+                for key, name in keys:
+                    x += self._key_chip(screen, name, x, y, pressed[key], theme.PLAYER_COLORS[i]) + 4
         self._text(screen, "Esc menu", (cx, h - 14), self.small, theme.HUD_DIM, center=True)
 
         # start countdown: 3, 2, 1, FIRE!

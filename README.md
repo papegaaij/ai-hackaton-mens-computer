@@ -17,10 +17,10 @@ python3 -m venv .venv
 | | Player 1 (left) | Player 2 (right) |
 |---|---|---|
 | Power (down / up) | 1 / 2 | [ / ] |
-| Angle | A / S | Up / Down |
-| Move left / right (uses fuel, refills slowly) | W / D | Left / Right |
+| Angle (up / down) | W / S | Down / Up |
+| Move left / right (uses fuel, refills slowly) | A / D | Left / Right |
 | Jump (over steep sections; uses fuel) | Tab | Enter |
-| Next weapon | ` | \\ |
+| Next weapon | ` | ? |
 | Fire | Left Shift | Right Shift |
 
 Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · R/Enter: rematch.
