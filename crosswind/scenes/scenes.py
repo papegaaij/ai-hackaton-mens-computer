@@ -12,6 +12,7 @@ from crosswind.audio.engine import engine
 from crosswind.control.human import P1_KEYS, P2_KEYS, HumanController
 from crosswind.core.game import Game, Phase
 from crosswind.render import theme
+from crosswind.render.ai_view import AiView
 from crosswind.render.hud import Hud
 from crosswind.render.renderer import Renderer
 
@@ -80,6 +81,7 @@ class MenuScene:
 class BattleScene:
     REMATCH_GRACE = 1.0  # s on the game-over screen before rematch keys count, so mashing fire can't skip it
     AUTO_REMATCH = 4.0   # s on the game-over screen before an AI-vs-AI match starts over by itself
+    show_ai = False      # F9: show what the computer players see and decide (kept across matches)
 
     def __init__(self, screen: pygame.Surface, seed: int | None = None, modes: tuple[str, str] = (HUMAN, HUMAN)):
         self.screen = screen
@@ -89,6 +91,7 @@ class BattleScene:
         # Each player is a human on their own keys, or an AI that shows the same keys as it "presses" them.
         self.controllers = [make_controller(i, mode) for i, mode in enumerate(modes)]
         self.hud = Hud(self.controllers)
+        self.ai_view = AiView()
         self.big = pygame.font.Font(None, 90)
         self.font = pygame.font.Font(None, 34)
         self._over_time = 0.0
@@ -99,6 +102,8 @@ class BattleScene:
                 return MenuScene(self.screen, self.modes)
             if event.key == pygame.K_m:
                 engine().toggle_mute()
+            if event.key == pygame.K_F9:
+                BattleScene.show_ai = not BattleScene.show_ai
             if (self.game.phase is Phase.GAME_OVER and self._over_time >= self.REMATCH_GRACE
                     and event.key in (pygame.K_r, pygame.K_RETURN)):
                 return BattleScene(self.screen, modes=self.modes)
@@ -120,6 +125,8 @@ class BattleScene:
         g.update(dt)
         self.renderer.draw(self.screen, g, dt)
         self.hud.draw(self.screen, g, dt)
+        if BattleScene.show_ai:
+            self.ai_view.draw(self.screen, g, self.controllers)
         engine().update(g, dt)
         if g.phase is Phase.PLAYING:
             engine().play_music(music.BATTLE)

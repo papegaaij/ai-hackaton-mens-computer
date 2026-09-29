@@ -23,7 +23,7 @@ python3 -m venv .venv
 | Next weapon | ` | ? |
 | Fire | Left Shift | Right Shift |
 
-Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · M: mute sound · - / =: music quieter / louder · F10: full screen · R/Enter: rematch.
+Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · M: mute sound · - / =: music quieter / louder · F9: AI view · F10: full screen · R/Enter: rematch.
 A 3-2-1 countdown starts each match; you can aim during it but not fire.
 
 ## Computer players
@@ -46,6 +46,10 @@ The AI plays by the same rules as you:
     earlier versions of itself. It decides the angle, a correction on the aimer's power, the weapon,
     when to drive, jump and fire.
 - Easy and Medium are earlier stages of the same training, with slower reactions and a shakier hand.
+- Press **F9** in a match to see what each AI looks at and decides: which way it counts as "ahead", the
+  ground it samples, where it aims, its last miss, the enemy shots it tracks, and a panel with the aimer's
+  power per angle and each choice with how sure the network was (for Rules: its bracketing and why it
+  picked its weapon).
 
 ### Retraining
 The trained models are in `models/`, so playing needs no extra packages. To train them yourself:

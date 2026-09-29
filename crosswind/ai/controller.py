@@ -46,6 +46,7 @@ class TacticsPolicy:
         self.net = net
         self.deterministic = deterministic
         self.rng = np.random.default_rng(seed)
+        self.last_probs: list[np.ndarray] = []  # per choice (see ACTION_NVEC): how likely each option was
 
     @classmethod
     def load(cls, path: str | Path, deterministic: bool = True, seed: int | None = None) -> TacticsPolicy:
@@ -54,14 +55,14 @@ class TacticsPolicy:
     def __call__(self, obs: np.ndarray, mask: np.ndarray) -> np.ndarray:
         logits = np.where(mask, self.net(obs), -np.inf)
         action, start = [], 0
+        self.last_probs = []
         for n in ACTION_NVEC:
             part = logits[start:start + n]
             start += n
-            if self.deterministic:
-                action.append(int(np.argmax(part)))
-            else:
-                prob = np.exp(part - part.max())
-                action.append(int(self.rng.choice(n, p=prob / prob.sum())))
+            prob = np.exp(part - part.max())
+            prob /= prob.sum()
+            self.last_probs.append(prob)
+            action.append(int(np.argmax(part)) if self.deterministic else int(self.rng.choice(n, p=prob)))
         return np.array(action)
 
 
@@ -92,6 +93,7 @@ class AIController:
         self._trend = 0.0
         self.shots = [0] * N_WEAPONS  # shots fired per weapon, and jumps made (for training stats)
         self.jumps = 0
+        self.insight: dict | None = None  # what went into the latest decision (for the F9 AI view)
 
     # ---- deciding ------------------------------------------------------
     def watch_wind(self, game: Game) -> float:
@@ -115,7 +117,7 @@ class AIController:
         """Observation for the policy."""
         self.face(game)
         me = game.players[self.index]
-        suggestions = self._suggest(game, me.weapon, ANGLE_BINS, 0)
+        suggestions = self._suggestions = self._suggest(game, me.weapon, ANGLE_BINS, 0)
         target = None if self.target_angle is None else canon_angle(self.target_angle, self.flip)
         return observe(game, self.index, self.flip, self._trend, suggestions, target, self.target_power)
 
@@ -124,8 +126,18 @@ class AIController:
         a_bin, p_step, weapon, target, move, jump, fire = (int(v) for v in action)
         self.target_angle = canon_angle(float(ANGLE_BINS[a_bin]), self.flip)
         # the power for the weapon it will fire, which may not be selected yet
-        power = self._suggest(game, weapon, ANGLE_BINS[a_bin], target)[0] + POWER_STEPS[p_step] + self._noise
+        aimer = self._suggest(game, weapon, ANGLE_BINS[a_bin], target)[0]
+        power = aimer + POWER_STEPS[p_step] + self._noise
         self.target_power = float(min(max(power, 5.0), 100.0))
+        if self.policy is not None:  # playing (not training): keep what the decision was based on
+            me = game.players[self.index]
+            dx, dy = aim_target(game, self.index, self.flip, target)
+            self.insight = {
+                "kind": "trained", "flip": self.flip, "action": (a_bin, p_step, weapon, target, move, jump, fire),
+                "probs": getattr(self.policy, "last_probs", None), "suggestions": getattr(self, "_suggestions", None),
+                "aimer": float(aimer), "correction": float(POWER_STEPS[p_step]), "noise": self._noise,
+                "target": (me.x + canon_dx(dx, self.flip), me.y + dy), "trend": self._trend,
+            }
         self.weapon = weapon
         self.move = 1 - move if self.flip else move - 1
         self._jump, self._fire = bool(jump), bool(fire)

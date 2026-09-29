@@ -178,3 +178,25 @@ def test_ai_shoots_an_enemy_behind_it(difficulty):
             g.update(1 / 60)
         hits += g.players[1].hp < config.PLAYER_HP
     assert hits >= 2
+
+
+def test_ai_view_shows_what_both_kinds_of_ai_decided():
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    from crosswind.ai.rules import RuleBasedController
+    from crosswind.render.ai_view import AiView
+    pygame.init()
+    screen = pygame.Surface((config.WIDTH, config.HEIGHT))
+    g = Game(seed=5, countdown=0)
+    ais = [make_ai(0, "Hard"), RuleBasedController(1)]
+    view = AiView()
+    for _ in range(60 * 8):
+        for ai in ais:
+            ai.update(g, 1 / 60)
+        g.update(1 / 60)
+        view.draw(screen, g, ais)
+    trained, rules = (ai.insight for ai in ais)
+    assert trained["kind"] == "trained" and rules["kind"] == "rules"
+    assert len(trained["probs"]) == len(ACTION_NVEC)
+    assert all(abs(p.sum() - 1) < 1e-5 for p in trained["probs"])
+    assert len(trained["suggestions"]) == len(ANGLE_BINS) and rules["reason"]

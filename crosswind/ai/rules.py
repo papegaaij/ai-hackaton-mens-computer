@@ -57,6 +57,7 @@ class RuleBasedController(AIController):
         self._dodge = 0.0
         self._last_x: float | None = None
         self._last_hp: float | None = None
+        self.reason = ""  # why it picked its current weapon (for the F9 AI view)
 
     # ---- what it sees ----------------------------------------------------
     def _dx(self, game: Game) -> float:
@@ -139,22 +140,27 @@ class RuleBasedController(AIController):
         return HIGH_ANGLE if self._hill(game) > BIG_HILL else ANGLE
 
     def _pick_weapon(self, game: Game) -> int:
+        weapon, self.reason = self._weapon_rule(game)
+        return weapon
+
+    def _weapon_rule(self, game: Game) -> tuple[int, str]:
+        """The weapon for the next shot, and the rule that picked it."""
         me = game.players[self.index]
         last = self.misses[-1] if self.misses else None
         r = self.rng.random()
         if me.energy >= 0.7 * config.ENERGY_MAX and last is not None and last < 60:  # then waits for a full bar
-            return MEGATON
+            return MEGATON, "almost on target"
         if me.hp < 40 and r < 0.15:
-            return DIRT
+            return DIRT, "low HP: cover"
         if me.energy < WEAPONS[PLASMA].energy:
-            return SPARK
+            return SPARK, "low energy"
         if abs(game.wind) > 0.6 * config.WIND_MAX:
-            return ROCKET
+            return ROCKET, "strong wind"
         if self._hill(game) > HILL:
-            return DRILLER
+            return DRILLER, "hill in between"
         if last is not None and last < 100 and r < 0.2:  # close enough to try something different
-            return CLUSTER if r < 0.12 else BOUNCER
-        return PLASMA
+            return (CLUSTER, "close: spread it") if r < 0.12 else (BOUNCER, "close: roll it in")
+        return PLASMA, "default"
 
     def _threatened(self, game: Game) -> bool:
         me = game.players[self.index]
@@ -186,6 +192,13 @@ class RuleBasedController(AIController):
                  and me.weapon == weapon and game.can_fire(self.index))
         # one shot in the air at a time, so each one tells it something (unless energy would go to waste)
         self._fire = ready and (not in_flight or me.energy >= config.ENERGY_MAX - 0.5)
+        b = self.bracket
+        self.insight = {
+            "kind": "rules", "flip": self.flip, "weapon": weapon, "reason": self.reason, "angle": angle,
+            "high": angle == HIGH_ANGLE, "power": self.target_power, "estimate": None if b is None else b.power,
+            "step": None if b is None else b.step, "miss": None if b is None else b.miss,
+            "side": 0 if b is None else b.side, "ready": ready, "in_flight": in_flight, "dodging": self._dodge > 0,
+        }
 
     def update(self, game: Game, dt: float) -> None:
         me = game.players[self.index]
