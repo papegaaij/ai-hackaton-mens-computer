@@ -5,6 +5,7 @@ import math
 
 import pygame
 
+from crosswind.audio.engine import engine
 from crosswind.control.human import P1_KEYS, P2_KEYS, HumanController
 from crosswind.core.game import Game, Phase
 from crosswind.render import theme
@@ -22,7 +23,10 @@ class MenuScene:
         self.t = 0.0
 
     def handle_event(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+            engine().toggle_mute()
         if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            engine().ui()
             return BattleScene(self.screen)
         return self
 
@@ -30,6 +34,7 @@ class MenuScene:
         self.t += dt
         self.preview.update(dt)  # keeps the wind drifting behind the title
         self.renderer.draw(self.screen, self.preview, dt)
+        engine().update(self.preview, dt, events=False)  # wind ambience only
         w, h = self.screen.get_size()
         for text, font, y, col in (
             ("CROSSWIND", self.title, h * 0.3, theme.ROCK_EDGE),
@@ -62,6 +67,8 @@ class BattleScene:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 return MenuScene(self.screen)
+            if event.key == pygame.K_m:
+                engine().toggle_mute()
             if (self.game.phase is Phase.GAME_OVER and self._over_time >= self.REMATCH_GRACE
                     and event.key in (pygame.K_r, pygame.K_RETURN)):
                 return BattleScene(self.screen)
@@ -83,6 +90,7 @@ class BattleScene:
         g.update(dt)
         self.renderer.draw(self.screen, g, dt)
         self.hud.draw(self.screen, g, dt)
+        engine().update(g, dt)
         if g.phase is Phase.GAME_OVER:
             self._draw_game_over()
         return self

@@ -25,6 +25,8 @@ class Projectile:
     trail: list[tuple[float, float]] = field(default_factory=list)
     age: float = 0.0                # seconds since launch
     timer: float | None = None      # driller/bouncer: seconds left until it explodes, once it touched ground
+    bounces: int = 0                # bouncer: audible bounces so far
+    last_bounce: float = -1.0       # bouncer: age at the last audible bounce
 
 
 def launch(x: float, y: float, angle: float, power: float, weapon: Weapon, owner: int) -> Projectile:

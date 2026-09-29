@@ -23,7 +23,7 @@ python3 -m venv .venv
 | Next weapon | ` | ? |
 | Fire | Left Shift | Right Shift |
 
-Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · R/Enter: rematch.
+Tap an aim key for a fine nudge; hold it and it speeds up. Esc: menu · M: mute sound · R/Enter: rematch.
 A 3-2-1 countdown starts each match; you can aim during it but not fire.
 
 ## Weapons
@@ -40,9 +40,16 @@ The white tick on your energy bar shows what the selected weapon costs (a full b
 | Dirt Bomb | 30 | Defence: builds a mound of earth (cover, or a ramp to jump from). No damage. |
 | Megaton | 100 | The whole bar: a huge crater and heavy damage. Heavy and slow. |
 
+## Sound
+Style "Dust & Metal × Cinematic": metal and grit up close, sub-bass booms and rumble tails far away.
+Every weapon has its own launch and impact sound, the wind bed follows the in-game wind live (louder,
+brighter and leaning to the side it blows to), Player 1 sits left in the stereo image and Player 2 right.
+Samples: Kenney (kenney.nl), CC0; see `crosswind/assets/sounds/CREDITS.md`.
+
 ## Architecture
 - `crosswind/core/`: the simulation itself, written in pure Python and numpy with no pygame. It is deterministic (seeded), steps in fixed physics ticks and can run headless.
 - `crosswind/control/`: the `Controller` interface. `HumanController` reads one player's keys (`P1_KEYS` / `P2_KEYS`). Later, an RL agent can take over one player by returning a `FireAction`.
 - `crosswind/render/`: the renderer and HUD. `theme.py` holds the full colour palette.
+- `crosswind/audio/`: the sound engine. The core emits `SoundEvent`s (pure data), `recipes.py` says what each one sounds like, `engine.py` plays them with the pygame mixer.
 - `crosswind/scenes/`: menu, battle and game over screens.
 - `Game.observe(i)` already returns a numeric observation vector, ready for a future Gymnasium env.
