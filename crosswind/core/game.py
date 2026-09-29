@@ -68,7 +68,7 @@ class Game:
 
     def barrel_tip(self, p: Player) -> tuple[float, float]:
         rad = math.radians(p.angle)
-        length = config.PLAYER_RADIUS + 8
+        length = config.PLAYER_RADIUS * 1.6
         return p.x + math.cos(rad) * length, p.y - config.PLAYER_RADIUS * 0.5 - math.sin(rad) * length
 
     # ---- input API (used by controllers) ---------------------------------

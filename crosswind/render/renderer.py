@@ -186,12 +186,13 @@ class Renderer:
             screen.blit(glow, (x - r * 2.5, y - r * 2.5))
         # barrel
         tx, ty = game.barrel_tip(pl)
-        pygame.draw.line(screen, col, (x, y - r * 0.5), (tx + ox, ty + oy), 4)
+        pygame.draw.line(screen, col, (x, y - r * 0.5), (tx + ox, ty + oy), round(r * 0.28))
         # dome body + legs (alien crawler)
         for lx in (-r * 0.8, -r * 0.3, r * 0.3, r * 0.8):
-            pygame.draw.line(screen, tuple(int(c * 0.6) for c in col), (x + lx, y), (x + lx * 1.3, y + r * 0.6), 2)
+            pygame.draw.line(screen, tuple(int(c * 0.6) for c in col), (x + lx, y), (x + lx * 1.3, y + r * 0.6),
+                             round(r * 0.14))
         pygame.draw.ellipse(screen, tuple(int(c * 0.5) for c in col), (x - r, y - r * 0.4, r * 2, r * 0.9))
         pygame.draw.circle(screen, col, (x, y - r * 0.4), r * 0.65, draw_top_left=True, draw_top_right=True)
-        eye = (x + (4 if pl.angle < 90 else -4), y - r * 0.6)
-        pygame.draw.circle(screen, (255, 255, 255), eye, 3)
-        pygame.draw.circle(screen, (20, 10, 40), eye, 1.5)
+        eye = (x + (r * 0.3 if pl.angle < 90 else -r * 0.3), y - r * 0.6)
+        pygame.draw.circle(screen, (255, 255, 255), eye, r * 0.21)
+        pygame.draw.circle(screen, (20, 10, 40), eye, r * 0.11)
