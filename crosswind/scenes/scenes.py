@@ -7,6 +7,7 @@ import pygame
 
 from crosswind.ai.controller import DIFFICULTIES, make_ai, models_available
 from crosswind.ai.rules import RuleBasedController
+from crosswind.audio import music
 from crosswind.audio.engine import engine
 from crosswind.control.human import P1_KEYS, P2_KEYS, HumanController
 from crosswind.core.game import Game, Phase
@@ -56,6 +57,7 @@ class MenuScene:
         self.preview.update(dt)  # keeps the wind drifting behind the title
         self.renderer.draw(self.screen, self.preview, dt)
         engine().update(self.preview, dt, events=False)  # wind ambience only
+        engine().play_music(music.MENU)
         w, h = self.screen.get_size()
         for text, font, y, col in (
             ("CROSSWIND", self.title, h * 0.3, theme.ROCK_EDGE),
@@ -119,6 +121,10 @@ class BattleScene:
         self.renderer.draw(self.screen, g, dt)
         self.hud.draw(self.screen, g, dt)
         engine().update(g, dt)
+        if g.phase is Phase.PLAYING:
+            engine().play_music(music.BATTLE)
+        else:
+            engine().play_music(music.WIN if g.winner is not None else music.DRAW)
         if g.phase is Phase.GAME_OVER:
             self._draw_game_over()
         return self

@@ -78,10 +78,14 @@ Every weapon has its own launch and impact sound, the wind bed follows the in-ga
 brighter and leaning to the side it blows to), Player 1 sits left in the stereo image and Player 2 right.
 Samples: Kenney (kenney.nl), CC0; see `crosswind/assets/sounds/CREDITS.md`.
 
+Music: an eerie alien theme in the menu, a driving pulse in battle and a sting when the match is decided,
+crossfaded and kept under the sound effects (it dips under big blasts). Tracks: *Dark Sci-Fi Audio Pack*
+by SRG774, CC0; see `crosswind/assets/music/CREDITS.md`.
+
 ## Architecture
 - `crosswind/core/`: the simulation itself, written in pure Python and numpy with no pygame. It is deterministic (seeded), steps in fixed physics ticks and can run headless.
 - `crosswind/control/`: the `Controller` interface. `HumanController` reads one player's keys (`P1_KEYS` / `P2_KEYS`). Controllers act only through the game's inputs (`adjust_aim`, `move`, `jump`, `cycle_weapon`, `fire`) and report the keys they hold with `held()`.
 - `crosswind/ai/`: the computer player (numpy only while playing); `crosswind/ai/train/` trains it.
 - `crosswind/render/`: the renderer and HUD. `theme.py` holds the full colour palette.
-- `crosswind/audio/`: the sound engine. The core emits `SoundEvent`s (pure data), `recipes.py` says what each one sounds like, `engine.py` plays them with the pygame mixer.
+- `crosswind/audio/`: the sound engine. The core emits `SoundEvent`s (pure data), `recipes.py` says what each one sounds like, `engine.py` plays them with the pygame mixer, `music.py` the music.
 - `crosswind/scenes/`: menu, battle and game over screens.

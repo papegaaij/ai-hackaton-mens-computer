@@ -4,6 +4,7 @@
   sample are rendered once with numpy and cached.
 - Loops: wind bed (generated noise that follows the game's wind live), sand grit, planet drone, one drive
   loop per tank.
+- Music (music.py): menu theme, battle loop and game-over stings on two more reserved channels.
 - Mix: priority decides who gets a channel when all are busy, at most 2 copies of one sample play at once,
   big events duck the rest by ~6 dB, Player 1 sits left and Player 2 right.
 If no audio device is available the engine silently does nothing.
@@ -19,6 +20,7 @@ import pygame
 
 from crosswind import config
 from crosswind.audio import recipes as R
+from crosswind.audio.music import Music
 from crosswind.audio.recipes import LEVEL, Layer
 
 SOUND_DIR = Path(__file__).resolve().parent.parent / "assets" / "sounds"
@@ -36,6 +38,7 @@ PRIORITY = {"count": 1, "go": 1, "hit": 1, "down": 1, "win": 1, "draw": 1,
             "switch": 4, "gust": 5, "ui": 5}
 
 _N_LOOPS = 6  # reserved channels: wind low, wind bright, grit, drone, drive P1, drive P2
+_N_MUSIC = 2  # reserved channels after those: two music voices to crossfade between
 
 
 class SoundEngine:
@@ -59,9 +62,10 @@ class SoundEngine:
                 pygame.mixer.init(44100, -16, 2, 512)
             self.rate, _, self.channels = pygame.mixer.get_init()
             pygame.mixer.set_num_channels(40)
-            pygame.mixer.set_reserved(_N_LOOPS)
+            pygame.mixer.set_reserved(_N_LOOPS + _N_MUSIC)
             self._load()
             self._loops = [pygame.mixer.Channel(i) for i in range(_N_LOOPS)]
+            self.music = Music((pygame.mixer.Channel(_N_LOOPS), pygame.mixer.Channel(_N_LOOPS + 1)))
             self._start_loops()
             self.enabled = True
         except (pygame.error, OSError, ValueError) as e:  # no audio device, missing files, ...
@@ -145,6 +149,11 @@ class SoundEngine:
         else:
             pygame.mixer.unpause()
 
+    def play_music(self, track: str | None) -> None:
+        """Crossfade to a music track (see music.py: MENU, BATTLE, WIN, DRAW), or to silence with None."""
+        if self.enabled:
+            self.music.play(track)
+
     def ui(self) -> None:
         if self.enabled and not self.muted:
             self._play(R.UI, 0.0, LEVEL["cue"], PRIORITY["ui"])
@@ -165,6 +174,7 @@ class SoundEngine:
         game.sounds.clear()
         self._flush()
         self._update_loops(game, dt, drive=events)
+        self.music.update(dt, self._duck, self.muted)
 
     # ---- events -> recipes -----------------------------------------------------
     def _pan_x(self, x: float) -> float:
